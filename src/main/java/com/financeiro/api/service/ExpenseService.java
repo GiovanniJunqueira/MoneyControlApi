@@ -17,6 +17,7 @@ import com.financeiro.api.util.FiscalPeriod;
 import com.financeiro.api.util.FiscalPeriodCalculator;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.UUID;
@@ -37,6 +38,7 @@ public class ExpenseService {
         this.moduleSettingsService = moduleSettingsService;
     }
 
+    @Transactional(readOnly = true)
     public ExpenseListResponse list(String periodParam) {
         int closingDay = moduleSettingsService.getClosingDay(ModuleType.GASTOS);
         FiscalPeriod period = resolvePeriod(periodParam, closingDay);

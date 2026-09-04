@@ -39,13 +39,17 @@ com.financeiro.api/
 
 Padrão seguido em todo módulo: `Controller` fino → `Service` com a lógica → `Repository`. DTOs são `record`s do Java, validados com Bean Validation (`jakarta.validation`).
 
+## Cuidado com `open-in-view: false` + associações lazy
+
+`open-in-view` está desligado (`application.yml`) — de propósito, é a prática recomendada. Isso significa que a sessão do Hibernate fecha assim que o repository retorna, então **qualquer método de Service que acesse uma associação `@ManyToOne`/`@OneToMany` lazy depois da query precisa de `@Transactional(readOnly = true)`** (mantém a sessão aberta até o fim do método). Já apanhamos com isso: `DashboardService.gastos()`/`devedores()` (acessava `expense.getCategory().getName()` e `debt.getDebtor().getName()`), `DebtorService.list()`/`detail()` (acessava `debtor.getDebts()`) e `ExpenseService.list()` estavam sem a anotação e estouravam `LazyInitializationException` (500) assim que havia dado real — o dashboard vazio nunca pegava esse bug, só apareceu ao testar com um gasto/dívida de verdade. Se criar um novo método de leitura que atravesse uma associação lazy, adiciona `@Transactional(readOnly = true)` nele também.
+
 ## O que ainda falta (próximos passos conhecidos)
 
-- [ ] Testes automatizados (JUnit + Testcontainers pro Postgres)
+- [ ] Testes automatizados (JUnit + Testcontainers pro Postgres) — teriam pego o bug de `LazyInitializationException` acima antes de ir pra produção
 - [ ] Rate limiting nos endpoints de `/auth` (app é multiusuário real, não só uso pessoal)
 - [ ] Monitoramento de erros (ex: Sentry free tier)
 - [x] Deploy efetivo no Render + banco no Neon — feito, API em https://financeiro-api-bc70.onrender.com
-- [ ] Atualizar `CORS_ALLOWED_ORIGINS` no Render com a URL real do Vercel assim que o frontend for deployado (Fase 4)
+- [x] `CORS_ALLOWED_ORIGINS` atualizado no Render com a URL do Vercel (https://money-control-front-five.vercel.app)
 
 ## Frontend irmão
 

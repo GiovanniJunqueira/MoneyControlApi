@@ -12,6 +12,7 @@ import com.financeiro.api.repository.ExpenseRepository;
 import com.financeiro.api.security.CurrentUser;
 import com.financeiro.api.util.FiscalPeriod;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -31,6 +32,7 @@ public class DashboardService {
         this.moduleSettingsService = moduleSettingsService;
     }
 
+    @Transactional(readOnly = true)
     public GastosDashboardResponse gastos(String periodParam) {
         int closingDay = moduleSettingsService.getClosingDay(ModuleType.GASTOS);
         FiscalPeriod period = ExpenseService.resolvePeriod(periodParam, closingDay);
@@ -71,6 +73,7 @@ public class DashboardService {
         return new GastosDashboardResponse(period, resumo, porCategoria, lancamentos);
     }
 
+    @Transactional(readOnly = true)
     public DevedoresDashboardResponse devedores(String periodParam) {
         int closingDay = moduleSettingsService.getClosingDay(ModuleType.DEVEDORES);
         FiscalPeriod period = ExpenseService.resolvePeriod(periodParam, closingDay);

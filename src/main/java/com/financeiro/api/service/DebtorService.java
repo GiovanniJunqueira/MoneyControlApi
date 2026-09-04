@@ -14,6 +14,7 @@ import com.financeiro.api.repository.UserRepository;
 import com.financeiro.api.security.CurrentUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -30,6 +31,7 @@ public class DebtorService {
         this.userRepository = userRepository;
     }
 
+    @Transactional(readOnly = true)
     public List<DebtorSummaryResponse> list() {
         return debtorRepository.findByUserIdOrderByNameAsc(CurrentUser.id()).stream().map(d -> {
             BigDecimal totalDevido = d.getDebts().stream()
@@ -43,6 +45,7 @@ public class DebtorService {
         }).toList();
     }
 
+    @Transactional(readOnly = true)
     public DebtorDetailResponse detail(UUID id) {
         Debtor debtor = findOwned(id);
         List<DebtResponse> debts = debtor.getDebts().stream()
