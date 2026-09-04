@@ -8,7 +8,7 @@ Backend do sistema de controle financeiro pessoal, com dois módulos independent
 - **PostgreSQL** via Spring Data JPA. Schema versionado com **Flyway** (`src/main/resources/db/migration`), `ddl-auto: validate` — não usa mais `update`.
 - **JWT stateless** (biblioteca `jjwt`) para autenticação — multiusuário, cada um só vê seus próprios dados.
 - **Maven**, sem Maven Wrapper incluso no pacote (gerar com `mvn -N wrapper:wrapper` se quiser). Existe um `Dockerfile` multi-stage pra build/execução em container, usado no deploy.
-- **Deploy**: API no **Render** (free web service), banco no **Neon** (Postgres free serverless), frontend no **Vercel**. Config sensível (DB, JWT secret, CORS, porta) é 100% via variáveis de ambiente — ver tabela no `README.md`.
+- **Deploy**: API no ar em https://financeiro-api-bc70.onrender.com (Render, free web service, via `render.yaml`), banco no **Neon** (Postgres free serverless), frontend planejado pro **Vercel**. Config sensível (DB, JWT secret, CORS, porta) é 100% via variáveis de ambiente — ver tabela no `README.md`.
 
 ## Decisões de produto (não óbvias pelo código)
 
@@ -44,7 +44,8 @@ Padrão seguido em todo módulo: `Controller` fino → `Service` com a lógica �
 - [ ] Testes automatizados (JUnit + Testcontainers pro Postgres)
 - [ ] Rate limiting nos endpoints de `/auth` (app é multiusuário real, não só uso pessoal)
 - [ ] Monitoramento de erros (ex: Sentry free tier)
-- [ ] Deploy efetivo no Render + banco no Neon (config já está pronta, falta provisionar)
+- [x] Deploy efetivo no Render + banco no Neon — feito, API em https://financeiro-api-bc70.onrender.com
+- [ ] Atualizar `CORS_ALLOWED_ORIGINS` no Render com a URL real do Vercel assim que o frontend for deployado (Fase 4)
 
 ## Frontend irmão
 
