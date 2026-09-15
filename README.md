@@ -1,9 +1,11 @@
 # Financeiro API
 
-Backend do sistema de controle financeiro, com dois módulos independentes:
+Backend do sistema de controle financeiro. O usuário organiza os dados em **abas** (ex: uma por banco/conta) — cada aba é uma cópia independente do sistema, com dois módulos:
 
-- **Gastos**: lançamento de despesas por categoria personalizada, com período fiscal configurável (dia de fechamento do mês).
-- **Devedores**: controle de pessoas que te devem, com histórico de dívidas, pagamentos parciais/totais e status (pendente/parcial/quitado), também com período fiscal próprio.
+- **Gastos**: lançamento de despesas por categoria personalizada, com período fiscal configurável (dia de fechamento do mês) — próprio de cada aba.
+- **Devedores**: controle de pessoas que te devem, com histórico de dívidas, pagamentos parciais/totais e status (pendente/parcial/quitado), também com período fiscal próprio da aba.
+
+Um endpoint separado (`/dashboard/visao-geral`) soma os dados de todas as abas do usuário.
 
 ## Stack
 
@@ -62,38 +64,47 @@ docker run -p 8080:8080 --env-file .env financeiro-api
 
 Para as demais rotas, envie o header: `Authorization: Bearer <token>`
 
-### Configuração de período fiscal (`/module-settings`)
-- `GET /module-settings/{module}` — `module` = `gastos` ou `devedores`
-- `PUT /module-settings/{module}` — `{ closingDay: 25 }`
+### Abas (`/tabs`)
+- `GET /tabs` — lista as abas do usuário
+- `POST /tabs` — `{ name, color }`
+- `PUT /tabs/{id}` — renomear/recolorir
+- `DELETE /tabs/{id}` — apaga a aba e tudo dentro dela (categorias, gastos, devedores, dívidas — cascade no banco); bloqueado se for a última aba do usuário
 
-### Categorias (`/categories`)
-- `GET /categories`
-- `POST /categories` — `{ name, color, icon }`
-- `PUT /categories/{id}`
-- `DELETE /categories/{id}`
+Toda conta nova já nasce com uma aba "Geral". Todos os endpoints abaixo são aninhados sob `/tabs/{tabId}/...` — o `{tabId}` precisa ser de uma aba do próprio usuário.
 
-### Gastos (`/expenses`)
-- `GET /expenses?period=2026-08` (opcional; sem o parâmetro usa o período atual)
-- `POST /expenses` — `{ categoryId, amount, description, date }`
-- `PUT /expenses/{id}`
-- `DELETE /expenses/{id}`
+### Configuração de período fiscal (`/tabs/{tabId}/module-settings`)
+- `GET /tabs/{tabId}/module-settings/{module}` — `module` = `gastos` ou `devedores`
+- `PUT /tabs/{tabId}/module-settings/{module}` — `{ closingDay: 25 }`
 
-### Devedores (`/debtors`)
-- `GET /debtors` — lista pessoas com total devido
-- `GET /debtors/{id}` — detalhe com todas as dívidas
-- `POST /debtors` — `{ name, notes }`
-- `PUT /debtors/{id}`
-- `DELETE /debtors/{id}`
+### Categorias (`/tabs/{tabId}/categories`)
+- `GET /tabs/{tabId}/categories`
+- `POST /tabs/{tabId}/categories` — `{ name, color, icon }`
+- `PUT /tabs/{tabId}/categories/{id}`
+- `DELETE /tabs/{tabId}/categories/{id}`
 
-### Dívidas (`/debts`)
-- `POST /debts` — `{ debtorId, amount, reason, date }`
-- `PUT /debts/{id}` — `{ amount, reason, date }`
-- `DELETE /debts/{id}`
-- `POST /debts/{id}/payments` — `{ amount, date? }` — registra pagamento (parcial ou total); status recalculado automaticamente
+### Gastos (`/tabs/{tabId}/expenses`)
+- `GET /tabs/{tabId}/expenses?period=2026-08` (opcional; sem o parâmetro usa o período atual da aba)
+- `POST /tabs/{tabId}/expenses` — `{ categoryId, amount, description, date }`
+- `PUT /tabs/{tabId}/expenses/{id}`
+- `DELETE /tabs/{tabId}/expenses/{id}`
 
-### Dashboard (`/dashboard`)
-- `GET /dashboard/gastos?period=2026-08` — total, gasto médio, quebra por categoria (com %) e lista de lançamentos do período
-- `GET /dashboard/devedores?period=2026-08` — total emprestado, recebido, pendente, e quebra por pessoa com todas as dívidas
+### Devedores (`/tabs/{tabId}/debtors`)
+- `GET /tabs/{tabId}/debtors` — lista pessoas com total devido
+- `GET /tabs/{tabId}/debtors/{id}` — detalhe com todas as dívidas
+- `POST /tabs/{tabId}/debtors` — `{ name, notes }`
+- `PUT /tabs/{tabId}/debtors/{id}`
+- `DELETE /tabs/{tabId}/debtors/{id}`
+
+### Dívidas (`/tabs/{tabId}/debts`)
+- `POST /tabs/{tabId}/debts` — `{ debtorId, amount, reason, date }`
+- `PUT /tabs/{tabId}/debts/{id}` — `{ amount, reason, date }`
+- `DELETE /tabs/{tabId}/debts/{id}`
+- `POST /tabs/{tabId}/debts/{id}/payments` — `{ amount, date? }` — registra pagamento (parcial ou total); status recalculado automaticamente
+
+### Dashboard
+- `GET /tabs/{tabId}/dashboard/gastos?period=2026-08` — total, gasto médio, quebra por categoria (com %) e lista de lançamentos do período, só dessa aba
+- `GET /tabs/{tabId}/dashboard/devedores?period=2026-08` — total emprestado, recebido, pendente, e quebra por pessoa com todas as dívidas, só dessa aba
+- `GET /dashboard/visao-geral?period=2026-08` — soma de **todas as abas** do usuário: total geral, quebra por categoria e por pessoa (mesmo nome em abas diferentes soma numa linha só), e o total de cada aba individualmente (usado pro gráfico de rosca da tela inicial)
 
 ## Sobre o período fiscal
 

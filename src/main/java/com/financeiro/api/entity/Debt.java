@@ -26,6 +26,10 @@ public class Debt {
     private User user;
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "tab_id", nullable = false)
+    private Tab tab;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "debtor_id", nullable = false)
     private Debtor debtor;
 

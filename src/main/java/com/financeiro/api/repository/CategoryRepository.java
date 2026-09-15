@@ -8,7 +8,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface CategoryRepository extends JpaRepository<Category, UUID> {
-    List<Category> findByUserIdOrderByNameAsc(UUID userId);
+    List<Category> findByTabIdOrderByNameAsc(UUID tabId);
     Optional<Category> findByIdAndUserId(UUID id, UUID userId);
-    Optional<Category> findByUserIdAndName(UUID userId, String name);
+    Optional<Category> findByIdAndTabId(UUID id, UUID tabId);
+    Optional<Category> findByTabIdAndName(UUID tabId, String name);
 }

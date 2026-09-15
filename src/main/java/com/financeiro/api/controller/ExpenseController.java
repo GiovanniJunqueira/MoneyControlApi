@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/expenses")
+@RequestMapping("/tabs/{tabId}/expenses")
 public class ExpenseController {
 
     private final ExpenseService expenseService;
@@ -21,24 +21,24 @@ public class ExpenseController {
         this.expenseService = expenseService;
     }
 
-    // GET /expenses?period=2026-08  (se omitido, usa o período fiscal atual)
+    // GET /tabs/{tabId}/expenses?period=2026-08  (se omitido, usa o período fiscal atual da aba)
     @GetMapping
-    public ExpenseListResponse list(@RequestParam(required = false) String period) {
-        return expenseService.list(period);
+    public ExpenseListResponse list(@PathVariable UUID tabId, @RequestParam(required = false) String period) {
+        return expenseService.list(tabId, period);
     }
 
     @PostMapping
-    public ResponseEntity<ExpenseResponse> create(@Valid @RequestBody ExpenseRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(expenseService.create(request));
+    public ResponseEntity<ExpenseResponse> create(@PathVariable UUID tabId, @Valid @RequestBody ExpenseRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(expenseService.create(tabId, request));
     }
 
     @PutMapping("/{id}")
-    public ExpenseResponse update(@PathVariable UUID id, @Valid @RequestBody ExpenseRequest request) {
+    public ExpenseResponse update(@PathVariable UUID tabId, @PathVariable UUID id, @Valid @RequestBody ExpenseRequest request) {
         return expenseService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id) {
         expenseService.delete(id);
         return ResponseEntity.noContent().build();
     }

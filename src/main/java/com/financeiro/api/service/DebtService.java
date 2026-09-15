@@ -6,6 +6,7 @@ import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.DebtPaymentRepository;
 import com.financeiro.api.repository.DebtRepository;
 import com.financeiro.api.repository.DebtorRepository;
+import com.financeiro.api.repository.TabRepository;
 import com.financeiro.api.repository.UserRepository;
 import com.financeiro.api.security.CurrentUser;
 import org.springframework.http.HttpStatus;
@@ -22,23 +23,28 @@ public class DebtService {
     private final DebtorRepository debtorRepository;
     private final DebtPaymentRepository debtPaymentRepository;
     private final UserRepository userRepository;
+    private final TabRepository tabRepository;
 
     public DebtService(DebtRepository debtRepository, DebtorRepository debtorRepository,
-                        DebtPaymentRepository debtPaymentRepository, UserRepository userRepository) {
+                        DebtPaymentRepository debtPaymentRepository, UserRepository userRepository,
+                        TabRepository tabRepository) {
         this.debtRepository = debtRepository;
         this.debtorRepository = debtorRepository;
         this.debtPaymentRepository = debtPaymentRepository;
         this.userRepository = userRepository;
+        this.tabRepository = tabRepository;
     }
 
-    public DebtResponse create(DebtRequest request) {
-        Debtor debtor = debtorRepository.findByIdAndUserId(request.debtorId(), CurrentUser.id())
+    public DebtResponse create(UUID tabId, DebtRequest request) {
+        Tab tab = findOwnedTab(tabId);
+        Debtor debtor = debtorRepository.findByIdAndTabId(request.debtorId(), tab.getId())
                 .orElseThrow(() -> new AppException("Pessoa não encontrada.", HttpStatus.NOT_FOUND));
 
         User user = userRepository.getReferenceById(CurrentUser.id());
 
         Debt debt = new Debt();
         debt.setUser(user);
+        debt.setTab(tab);
         debt.setDebtor(debtor);
         debt.setAmount(request.amount());
         debt.setReason(request.reason());
@@ -90,6 +96,11 @@ public class DebtService {
     private Debt findOwned(UUID id) {
         return debtRepository.findByIdAndUserId(id, CurrentUser.id())
                 .orElseThrow(() -> new AppException("Dívida não encontrada.", HttpStatus.NOT_FOUND));
+    }
+
+    private Tab findOwnedTab(UUID tabId) {
+        return tabRepository.findByIdAndUserId(tabId, CurrentUser.id())
+                .orElseThrow(() -> new AppException("Aba não encontrada.", HttpStatus.NOT_FOUND));
     }
 
     private DebtResponse toResponse(Debt d) {

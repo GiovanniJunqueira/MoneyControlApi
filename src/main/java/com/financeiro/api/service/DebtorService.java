@@ -7,9 +7,11 @@ import com.financeiro.api.dto.debtor.DebtorSummaryResponse;
 import com.financeiro.api.entity.Debt;
 import com.financeiro.api.entity.DebtStatus;
 import com.financeiro.api.entity.Debtor;
+import com.financeiro.api.entity.Tab;
 import com.financeiro.api.entity.User;
 import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.DebtorRepository;
+import com.financeiro.api.repository.TabRepository;
 import com.financeiro.api.repository.UserRepository;
 import com.financeiro.api.security.CurrentUser;
 import org.springframework.http.HttpStatus;
@@ -25,15 +27,18 @@ public class DebtorService {
 
     private final DebtorRepository debtorRepository;
     private final UserRepository userRepository;
+    private final TabRepository tabRepository;
 
-    public DebtorService(DebtorRepository debtorRepository, UserRepository userRepository) {
+    public DebtorService(DebtorRepository debtorRepository, UserRepository userRepository, TabRepository tabRepository) {
         this.debtorRepository = debtorRepository;
         this.userRepository = userRepository;
+        this.tabRepository = tabRepository;
     }
 
     @Transactional(readOnly = true)
-    public List<DebtorSummaryResponse> list() {
-        return debtorRepository.findByUserIdOrderByNameAsc(CurrentUser.id()).stream().map(d -> {
+    public List<DebtorSummaryResponse> list(UUID tabId) {
+        Tab tab = findOwnedTab(tabId);
+        return debtorRepository.findByTabIdOrderByNameAsc(tab.getId()).stream().map(d -> {
             BigDecimal totalDevido = d.getDebts().stream()
                     .filter(debt -> debt.getStatus() != DebtStatus.QUITADO)
                     .map(debt -> debt.getAmount().subtract(debt.getPaidAmount()))
@@ -55,10 +60,12 @@ public class DebtorService {
         return new DebtorDetailResponse(debtor.getId(), debtor.getName(), debtor.getNotes(), debts);
     }
 
-    public DebtorSummaryResponse create(DebtorRequest request) {
+    public DebtorSummaryResponse create(UUID tabId, DebtorRequest request) {
+        Tab tab = findOwnedTab(tabId);
         User user = userRepository.getReferenceById(CurrentUser.id());
         Debtor debtor = new Debtor();
         debtor.setUser(user);
+        debtor.setTab(tab);
         debtor.setName(request.name());
         debtor.setNotes(request.notes());
         debtorRepository.save(debtor);
@@ -80,6 +87,11 @@ public class DebtorService {
     private Debtor findOwned(UUID id) {
         return debtorRepository.findByIdAndUserId(id, CurrentUser.id())
                 .orElseThrow(() -> new AppException("Pessoa não encontrada.", HttpStatus.NOT_FOUND));
+    }
+
+    private Tab findOwnedTab(UUID tabId) {
+        return tabRepository.findByIdAndUserId(tabId, CurrentUser.id())
+                .orElseThrow(() -> new AppException("Aba não encontrada.", HttpStatus.NOT_FOUND));
     }
 
     private DebtResponse toDebtResponse(Debt d) {

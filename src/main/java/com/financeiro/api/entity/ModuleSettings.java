@@ -8,7 +8,7 @@ import lombok.Setter;
 import java.util.UUID;
 
 @Entity
-@Table(name = "module_settings", uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "module"}))
+@Table(name = "module_settings", uniqueConstraints = @UniqueConstraint(columnNames = {"tab_id", "module"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,6 +22,10 @@ public class ModuleSettings {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "tab_id", nullable = false)
+    private Tab tab;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ModuleType module;
@@ -29,8 +33,9 @@ public class ModuleSettings {
     @Column(nullable = false)
     private Integer closingDay = 1;
 
-    public ModuleSettings(User user, ModuleType module, Integer closingDay) {
+    public ModuleSettings(User user, Tab tab, ModuleType module, Integer closingDay) {
         this.user = user;
+        this.tab = tab;
         this.module = module;
         this.closingDay = closingDay;
     }

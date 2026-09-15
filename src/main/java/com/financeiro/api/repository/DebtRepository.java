@@ -11,5 +11,5 @@ import java.util.UUID;
 public interface DebtRepository extends JpaRepository<Debt, UUID> {
     Optional<Debt> findByIdAndUserId(UUID id, UUID userId);
     List<Debt> findByDebtorId(UUID debtorId);
-    List<Debt> findByUserIdAndDateBetween(UUID userId, LocalDate start, LocalDate end);
+    List<Debt> findByTabIdAndDateBetween(UUID tabId, LocalDate start, LocalDate end);
 }

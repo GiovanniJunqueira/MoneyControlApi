@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/categories")
+@RequestMapping("/tabs/{tabId}/categories")
 public class CategoryController {
 
     private final CategoryService categoryService;
@@ -22,22 +22,22 @@ public class CategoryController {
     }
 
     @GetMapping
-    public List<CategoryResponse> list() {
-        return categoryService.list();
+    public List<CategoryResponse> list(@PathVariable UUID tabId) {
+        return categoryService.list(tabId);
     }
 
     @PostMapping
-    public ResponseEntity<CategoryResponse> create(@Valid @RequestBody CategoryRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(categoryService.create(request));
+    public ResponseEntity<CategoryResponse> create(@PathVariable UUID tabId, @Valid @RequestBody CategoryRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(categoryService.create(tabId, request));
     }
 
     @PutMapping("/{id}")
-    public CategoryResponse update(@PathVariable UUID id, @Valid @RequestBody CategoryRequest request) {
+    public CategoryResponse update(@PathVariable UUID tabId, @PathVariable UUID id, @Valid @RequestBody CategoryRequest request) {
         return categoryService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id) {
         categoryService.delete(id);
         return ResponseEntity.noContent().build();
     }

@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface DebtorRepository extends JpaRepository<Debtor, UUID> {
-    List<Debtor> findByUserIdOrderByNameAsc(UUID userId);
+    List<Debtor> findByTabIdOrderByNameAsc(UUID tabId);
     Optional<Debtor> findByIdAndUserId(UUID id, UUID userId);
+    Optional<Debtor> findByIdAndTabId(UUID id, UUID tabId);
 }

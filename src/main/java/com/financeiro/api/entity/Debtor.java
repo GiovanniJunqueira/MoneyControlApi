@@ -24,6 +24,10 @@ public class Debtor {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "tab_id", nullable = false)
+    private Tab tab;
+
     @Column(nullable = false)
     private String name;
 

@@ -7,10 +7,12 @@ import com.financeiro.api.dto.expense.ExpenseResponse;
 import com.financeiro.api.entity.Category;
 import com.financeiro.api.entity.Expense;
 import com.financeiro.api.entity.ModuleType;
+import com.financeiro.api.entity.Tab;
 import com.financeiro.api.entity.User;
 import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.CategoryRepository;
 import com.financeiro.api.repository.ExpenseRepository;
+import com.financeiro.api.repository.TabRepository;
 import com.financeiro.api.repository.UserRepository;
 import com.financeiro.api.security.CurrentUser;
 import com.financeiro.api.util.FiscalPeriod;
@@ -28,36 +30,42 @@ public class ExpenseService {
     private final ExpenseRepository expenseRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
+    private final TabRepository tabRepository;
     private final ModuleSettingsService moduleSettingsService;
 
     public ExpenseService(ExpenseRepository expenseRepository, CategoryRepository categoryRepository,
-                           UserRepository userRepository, ModuleSettingsService moduleSettingsService) {
+                           UserRepository userRepository, TabRepository tabRepository,
+                           ModuleSettingsService moduleSettingsService) {
         this.expenseRepository = expenseRepository;
         this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
+        this.tabRepository = tabRepository;
         this.moduleSettingsService = moduleSettingsService;
     }
 
     @Transactional(readOnly = true)
-    public ExpenseListResponse list(String periodParam) {
-        int closingDay = moduleSettingsService.getClosingDay(ModuleType.GASTOS);
+    public ExpenseListResponse list(UUID tabId, String periodParam) {
+        Tab tab = findOwnedTab(tabId);
+        int closingDay = moduleSettingsService.getClosingDay(tab.getId(), ModuleType.GASTOS);
         FiscalPeriod period = resolvePeriod(periodParam, closingDay);
 
         var expenses = expenseRepository
-                .findByUserIdAndDateBetweenOrderByDateDesc(CurrentUser.id(), period.start(), period.end())
+                .findByTabIdAndDateBetweenOrderByDateDesc(tab.getId(), period.start(), period.end())
                 .stream().map(this::toResponse).toList();
 
         return new ExpenseListResponse(period, expenses);
     }
 
-    public ExpenseResponse create(ExpenseRequest request) {
-        Category category = categoryRepository.findByIdAndUserId(request.categoryId(), CurrentUser.id())
+    public ExpenseResponse create(UUID tabId, ExpenseRequest request) {
+        Tab tab = findOwnedTab(tabId);
+        Category category = categoryRepository.findByIdAndTabId(request.categoryId(), tab.getId())
                 .orElseThrow(() -> new AppException("Categoria não encontrada.", HttpStatus.NOT_FOUND));
 
         User user = userRepository.getReferenceById(CurrentUser.id());
 
         Expense expense = new Expense();
         expense.setUser(user);
+        expense.setTab(tab);
         expense.setCategory(category);
         expense.setAmount(request.amount());
         expense.setDescription(request.description());
@@ -70,7 +78,7 @@ public class ExpenseService {
     public ExpenseResponse update(UUID id, ExpenseRequest request) {
         Expense expense = findOwned(id);
 
-        Category category = categoryRepository.findByIdAndUserId(request.categoryId(), CurrentUser.id())
+        Category category = categoryRepository.findByIdAndTabId(request.categoryId(), expense.getTab().getId())
                 .orElseThrow(() -> new AppException("Categoria não encontrada.", HttpStatus.NOT_FOUND));
 
         expense.setCategory(category);
@@ -89,6 +97,11 @@ public class ExpenseService {
     private Expense findOwned(UUID id) {
         return expenseRepository.findByIdAndUserId(id, CurrentUser.id())
                 .orElseThrow(() -> new AppException("Gasto não encontrado.", HttpStatus.NOT_FOUND));
+    }
+
+    private Tab findOwnedTab(UUID tabId) {
+        return tabRepository.findByIdAndUserId(tabId, CurrentUser.id())
+                .orElseThrow(() -> new AppException("Aba não encontrada.", HttpStatus.NOT_FOUND));
     }
 
     /** Se periodParam vier no formato "YYYY-MM", resolve aquele período específico; senão, usa o atual. */

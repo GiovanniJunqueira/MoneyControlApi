@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/debtors")
+@RequestMapping("/tabs/{tabId}/debtors")
 public class DebtorController {
 
     private final DebtorService debtorService;
@@ -23,27 +23,27 @@ public class DebtorController {
     }
 
     @GetMapping
-    public List<DebtorSummaryResponse> list() {
-        return debtorService.list();
+    public List<DebtorSummaryResponse> list(@PathVariable UUID tabId) {
+        return debtorService.list(tabId);
     }
 
     @GetMapping("/{id}")
-    public DebtorDetailResponse detail(@PathVariable UUID id) {
+    public DebtorDetailResponse detail(@PathVariable UUID tabId, @PathVariable UUID id) {
         return debtorService.detail(id);
     }
 
     @PostMapping
-    public ResponseEntity<DebtorSummaryResponse> create(@Valid @RequestBody DebtorRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(debtorService.create(request));
+    public ResponseEntity<DebtorSummaryResponse> create(@PathVariable UUID tabId, @Valid @RequestBody DebtorRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(debtorService.create(tabId, request));
     }
 
     @PutMapping("/{id}")
-    public DebtorSummaryResponse update(@PathVariable UUID id, @Valid @RequestBody DebtorRequest request) {
+    public DebtorSummaryResponse update(@PathVariable UUID tabId, @PathVariable UUID id, @Valid @RequestBody DebtorRequest request) {
         return debtorService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id) {
         debtorService.delete(id);
         return ResponseEntity.noContent().build();
     }

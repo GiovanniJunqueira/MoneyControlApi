@@ -3,9 +3,11 @@ package com.financeiro.api.service;
 import com.financeiro.api.dto.auth.*;
 import com.financeiro.api.entity.ModuleSettings;
 import com.financeiro.api.entity.ModuleType;
+import com.financeiro.api.entity.Tab;
 import com.financeiro.api.entity.User;
 import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.ModuleSettingsRepository;
+import com.financeiro.api.repository.TabRepository;
 import com.financeiro.api.repository.UserRepository;
 import com.financeiro.api.security.JwtService;
 import org.springframework.http.HttpStatus;
@@ -17,15 +19,18 @@ import org.springframework.stereotype.Service;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final TabRepository tabRepository;
     private final ModuleSettingsRepository moduleSettingsRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
 
     public AuthService(UserRepository userRepository,
+                        TabRepository tabRepository,
                         ModuleSettingsRepository moduleSettingsRepository,
                         PasswordEncoder passwordEncoder,
                         JwtService jwtService) {
         this.userRepository = userRepository;
+        this.tabRepository = tabRepository;
         this.moduleSettingsRepository = moduleSettingsRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -42,9 +47,16 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(request.password()));
         userRepository.save(user);
 
+        // Toda conta nova começa com uma aba "Geral"
+        Tab tab = new Tab();
+        tab.setUser(user);
+        tab.setName("Geral");
+        tab.setColor("#007AFF");
+        tabRepository.save(tab);
+
         // Cria as configurações padrão de período fiscal (fechamento dia 1) para os dois módulos
-        moduleSettingsRepository.save(new ModuleSettings(user, ModuleType.GASTOS, 1));
-        moduleSettingsRepository.save(new ModuleSettings(user, ModuleType.DEVEDORES, 1));
+        moduleSettingsRepository.save(new ModuleSettings(user, tab, ModuleType.GASTOS, 1));
+        moduleSettingsRepository.save(new ModuleSettings(user, tab, ModuleType.DEVEDORES, 1));
 
         String token = jwtService.generateToken(user.getId());
         return new AuthResponse(toResponse(user), token);

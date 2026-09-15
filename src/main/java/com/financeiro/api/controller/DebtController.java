@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/debts")
+@RequestMapping("/tabs/{tabId}/debts")
 public class DebtController {
 
     private final DebtService debtService;
@@ -23,23 +23,23 @@ public class DebtController {
     }
 
     @PostMapping
-    public ResponseEntity<DebtResponse> create(@Valid @RequestBody DebtRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(debtService.create(request));
+    public ResponseEntity<DebtResponse> create(@PathVariable UUID tabId, @Valid @RequestBody DebtRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(debtService.create(tabId, request));
     }
 
     @PutMapping("/{id}")
-    public DebtResponse update(@PathVariable UUID id, @Valid @RequestBody DebtUpdateRequest request) {
+    public DebtResponse update(@PathVariable UUID tabId, @PathVariable UUID id, @Valid @RequestBody DebtUpdateRequest request) {
         return debtService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id) {
         debtService.delete(id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/payments")
-    public ResponseEntity<DebtResponse> registerPayment(@PathVariable UUID id, @Valid @RequestBody PaymentRequest request) {
+    public ResponseEntity<DebtResponse> registerPayment(@PathVariable UUID tabId, @PathVariable UUID id, @Valid @RequestBody PaymentRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(debtService.registerPayment(id, request));
     }
 }

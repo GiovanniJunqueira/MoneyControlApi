@@ -1,6 +1,6 @@
 # Contexto do projeto — Financeiro API
 
-Backend do sistema de controle financeiro pessoal, com dois módulos independentes: **Gastos** e **Devedores**. Este arquivo existe pra dar contexto rápido ao Claude Code sobre decisões já tomadas — evita re-perguntar coisas já definidas.
+Backend do sistema de controle financeiro pessoal. O usuário organiza os dados em **abas** (`Tab`, ex: uma por banco) — cada aba tem seus próprios **Gastos** e **Devedores**, módulos independentes entre si. Este arquivo existe pra dar contexto rápido ao Claude Code sobre decisões já tomadas — evita re-perguntar coisas já definidas.
 
 ## Stack e por quê
 
@@ -12,11 +12,25 @@ Backend do sistema de controle financeiro pessoal, com dois módulos independent
 
 ## Decisões de produto (não óbvias pelo código)
 
-1. **Multiusuário desde o início** — cada `User` tem seus próprios `Category`, `Expense`, `Debtor`, `Debt`, `ModuleSettings`. Toda query filtra por `userId` do JWT (via `CurrentUser.id()`).
+1. **Multiusuário desde o início** — cada `User` tem suas próprias `Tab`s, e cada `Tab` tem seus próprios `Category`, `Expense`, `Debtor`, `Debt`, `ModuleSettings`. Toda query filtra por `tabId` (listagem) ou `userId` do JWT (ownership check em update/delete, via `CurrentUser.id()`) — ver seção "Abas" abaixo.
 2. **Módulos Gastos e Devedores são totalmente independentes** — um gasto NÃO gera dívida automaticamente pra ninguém. Foi uma decisão explícita do usuário (perguntei e ele confirmou que quer os dois desacoplados).
-3. **Cada módulo tem seu próprio "período fiscal"** (dia de fechamento do mês, configurável de 1 a 28, default 1) — também são independentes entre si. Um usuário pode fechar Gastos todo dia 25 e Devedores todo dia 5, por exemplo.
+3. **Cada módulo tem seu próprio "período fiscal"** (dia de fechamento do mês, configurável de 1 a 28, default 1) — independente por módulo **e por aba**. Duas abas podem ter dias de fechamento diferentes entre si, e dentro da mesma aba Gastos e Devedores também são independentes.
 4. **Dívidas têm status com 3 estados**: `pendente` → `parcial` → `quitado`, recalculado automaticamente toda vez que um `DebtPayment` é registrado (soma pagamentos vs. valor total da dívida). Ver `DebtService.registerPayment()`.
-5. **Categorias são 100% customizáveis pelo usuário** (nome, cor, ícone) — não existem categorias fixas/seed.
+5. **Categorias são 100% customizáveis pelo usuário** (nome, cor, ícone) — não existem categorias fixas/seed, mas são únicas por aba (duas abas podem ter cada uma sua própria categoria "Mercado").
+
+## Abas (`Tab`) — multi-workspace
+
+Adicionado depois do MVP inicial (o usuário queria separar os dados por banco/conta, ex: BTG vs Itaú, com uma visão consolidada). Pontos importantes:
+
+- Toda conta nova ganha automaticamente uma aba **"Geral"** no registro (`AuthService.register()`). A migração `V2__add_tabs.sql` fez o mesmo retroativamente pra usuários que já existiam antes desse recurso — todos os dados antigos foram parar numa aba "Geral".
+- `Category`/`Expense`/`Debtor`/`Debt`/`ModuleSettings` têm **os dois** campos `user` (redundante, mantido só pro ownership check em update/delete continuar simples) e `tab` (o campo que realmente importa pra listar/filtrar). Ver `findOwnedTab()` em cada Service.
+- Excluir uma aba (`TabService.delete`) faz cascade no banco (`ON DELETE CASCADE` nas FKs de `tab_id`) — não tem lógica de limpeza manual. Bloqueado se for a última aba do usuário. A migration `V2` também corrigiu de passagem um bug preexistente: a FK `debt_payments.debt_id` não tinha cascade, então excluir uma dívida com pagamento registrado quebrava com violação de FK.
+- `GET /dashboard/visao-geral` soma os dados de **todas** as abas do usuário — implementado como um loop em `DashboardService.visaoGeral()` que chama a mesma lógica por-aba (`gastosParaAba`/`devedoresParaAba`) pra cada `Tab` e funde os resultados. Categorias/pessoas com o mesmo **nome** em abas diferentes são somadas numa linha só (decisão do usuário).
+- **Pegadinha de período na Visão Geral**: como cada aba pode ter um `closingDay` diferente, não dá pra deixar cada aba resolver seu próprio "período atual" de forma independente (duas abas podem discordar sobre qual é o mês corrente num dia de transição). A solução foi fixar uma única `period key` (formato `"YYYY-MM"`) ANTES do loop e passar a mesma pra `ExpenseService.resolvePeriod(key, closingDayDaAba)` de cada aba — cada uma calcula sua própria janela de datas a partir da mesma chave. Quando não vem `period` explícito na query, essa chave é calculada com `FiscalPeriodCalculator.getCurrentFiscalPeriod(1)` (closingDay=1 fixo como referência, não `YearMonth.now()` puro) — já teve um bug aqui onde usar o mês de calendário puro descolava do período que as telas por-aba mostravam por padrão.
+
+## Onde entra o donut/gráfico de pizza do frontend
+
+`GET /dashboard/visao-geral` retorna `abas: TabSummary[]` com `totalGastoPeriodo` de cada aba — é isso que dimensiona as fatias do gráfico de rosca na tela inicial do `financeiro-web` (`DonutTabChart.tsx`). Se mudar o formato desse campo, o frontend quebra o cálculo de proporção.
 
 ## A lógica mais importante do sistema: período fiscal
 
