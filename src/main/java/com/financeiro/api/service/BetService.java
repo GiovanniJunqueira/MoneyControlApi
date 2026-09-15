@@ -24,11 +24,11 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -115,6 +115,15 @@ public class BetService {
         User user = userRepository.getReferenceById(userId);
         LocalDate today = LocalDate.now();
 
+        LocalDate chosenStart;
+        try {
+            chosenStart = LocalDate.of(request.year(), request.month(), 1);
+        } catch (Exception e) {
+            throw new AppException("Mês/ano inválido.", HttpStatus.BAD_REQUEST);
+        }
+        LocalDate chosenLastDay = chosenStart.withDayOfMonth(chosenStart.lengthOfMonth());
+        boolean fullyPast = chosenLastDay.isBefore(today);
+
         List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
         BigDecimal startingBanca = BigDecimal.ZERO;
         Map<BetHouse, BigDecimal> startingBalancesByHouse = new LinkedHashMap<>();
@@ -124,19 +133,19 @@ public class BetService {
             startingBanca = startingBanca.add(balance);
         }
 
-        // fecha o mes aberto (se tiver) com a MESMA banca que vira a startingBanca do novo mes -
-        // grava direto no mes fechado pra não depender do novo mes continuar existindo depois.
-        Optional<BetMonth> previousOpen = betMonthRepository.findByUserIdAndEndDateIsNull(userId);
-        if (previousOpen.isPresent()) {
-            BetMonth open = previousOpen.get();
-            open.setEndDate(today);
-            open.setEndingBanca(startingBanca);
-            betMonthRepository.save(open);
+        // um mês totalmente no passado (ex: registrar agosto estando em setembro) não mexe no mês
+        // aberto atual - convive como um registro histórico à parte, já nascendo fechado.
+        if (!fullyPast) {
+            betMonthRepository.findByUserIdAndEndDateIsNull(userId).ifPresent(open -> {
+                open.setEndDate(today);
+                betMonthRepository.save(open);
+            });
         }
 
         BetMonth month = new BetMonth();
         month.setUser(user);
-        month.setStartDate(today);
+        month.setStartDate(chosenStart);
+        month.setEndDate(fullyPast ? chosenLastDay : null);
         month.setInitialUnitValue(request.initialUnitValue());
         month.setStartingBanca(startingBanca);
         betMonthRepository.save(month);
@@ -151,12 +160,11 @@ public class BetService {
 
         BetUnitValueChange change = new BetUnitValueChange();
         change.setMonth(month);
-        change.setDate(today);
+        change.setDate(chosenStart);
         change.setValue(request.initialUnitValue());
         betUnitValueChangeRepository.save(change);
 
-        return new BetMonthSummaryResponse(month.getId(), month.getStartDate(), null, true,
-                startingBanca, startingBanca, BigDecimal.ZERO, BigDecimal.ZERO);
+        return toSummary(month, houses);
     }
 
     public void updateUnitValue(UpdateUnitValueRequest request) {
@@ -169,38 +177,17 @@ public class BetService {
         betUnitValueChangeRepository.save(change);
     }
 
+    /**
+     * O resumo de cada mês é computado dinamicamente (nunca guardado), reaproveitando a mesma
+     * varredura dia-a-dia de {@link #computeMonthDays}. Sem isso, editar um mês fechado (permitido -
+     * ver updateHouseBalance) deixaria o resumo desatualizado.
+     */
     @Transactional(readOnly = true)
     public List<BetMonthSummaryResponse> listMonthsHistory() {
         UUID userId = CurrentUser.id();
         List<BetMonth> months = betMonthRepository.findByUserIdOrderByStartDateDescCreatedAtDesc(userId);
-        // precisa da ordem cronologica (mais antigo primeiro) pra achar a "banca final" de cada mes fechado
-        List<BetMonth> chronological = new ArrayList<>(months);
-        Collections.reverse(chronological);
-
-        List<BetMonthSummaryResponse> result = new ArrayList<>();
-        for (int i = 0; i < chronological.size(); i++) {
-            BetMonth m = chronological.get(i);
-            boolean open = m.getEndDate() == null;
-            BigDecimal endingBanca;
-            if (open) {
-                endingBanca = totalCurrentBanca(userId);
-            } else if (m.getEndingBanca() != null) {
-                endingBanca = m.getEndingBanca();
-            } else if (i + 1 < chronological.size()) {
-                // fallback pra meses fechados antes da coluna ending_banca existir
-                endingBanca = chronological.get(i + 1).getStartingBanca();
-            } else {
-                endingBanca = m.getStartingBanca();
-            }
-            BigDecimal profitLoss = endingBanca.subtract(m.getStartingBanca());
-            LocalDate unitRefDate = m.getEndDate() != null ? m.getEndDate() : LocalDate.now();
-            BigDecimal profitLossUnits = divideForUnits(profitLoss, resolveUnitValue(m, unitRefDate));
-            result.add(new BetMonthSummaryResponse(m.getId(), m.getStartDate(), m.getEndDate(), open,
-                    m.getStartingBanca(), endingBanca, profitLoss, profitLossUnits));
-        }
-
-        result.sort((a, b) -> b.startDate().compareTo(a.startDate()));
-        return result;
+        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
+        return months.stream().map(m -> toSummary(m, houses)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -212,34 +199,65 @@ public class BetService {
         }
 
         BigDecimal totalBanca = totalCurrentBanca(userId);
-        BetMonth oldest = months.get(months.size() - 1);
-        BigDecimal totalProfit = totalBanca.subtract(oldest.getStartingBanca());
+        // "mais antigo" pra ancorar o lucro total = o mês criado primeiro DE VERDADE (createdAt), não
+        // o mais antigo por calendário - senão, criar um mês passado pra backfill (feature nova)
+        // bagunçaria o total, usando o saldo de HOJE (a startingBanca de um mês passado) como se
+        // fosse o ponto de partida de todo o histórico.
+        BetMonth oldestByCreation = months.stream().min(Comparator.comparing(BetMonth::getCreatedAt)).orElseThrow();
+        BigDecimal totalProfit = totalBanca.subtract(oldestByCreation.getStartingBanca());
 
-        BetMonth mostRecent = months.get(0);
+        BetMonth mostRecent = months.get(0); // startDate desc: o mais recente por calendário
         LocalDate unitRefDate = mostRecent.getEndDate() != null ? mostRecent.getEndDate() : LocalDate.now();
         BigDecimal totalProfitUnits = divideForUnits(totalProfit, resolveUnitValue(mostRecent, unitRefDate));
 
         return new BetOverviewResponse(totalProfit, totalProfitUnits);
     }
 
-    /** Lista todos os dias do mês (do início até hoje ou até o fechamento), com o resultado do dia e por casa. */
+    /** Lista todos os dias do mês (do início até hoje+1 ou até o fechamento), com o resultado do dia e por casa. */
     @Transactional(readOnly = true)
     public BetMonthDaysResponse listMonthDays(UUID monthId) {
         UUID userId = CurrentUser.id();
         BetMonth month = betMonthRepository.findByIdAndUserId(monthId, userId)
                 .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
-
-        boolean open = month.getEndDate() == null;
-        LocalDate rangeEnd = open ? LocalDate.now() : month.getEndDate();
-
         List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
+        return computeMonthDays(month, houses);
+    }
+
+    private BetMonthSummaryResponse toSummary(BetMonth month, List<BetHouse> houses) {
+        BetMonthDaysResponse days = computeMonthDays(month, houses);
+        return new BetMonthSummaryResponse(days.monthId(), days.startDate(), days.endDate(), days.open(),
+                days.startingBanca(), days.endingBanca(), days.profitLoss(), days.profitLossUnits());
+    }
+
+    /**
+     * Intervalo de dias a mostrar pro mês: se já fechado, do início até o fim. Se ainda não começou
+     * (mês futuro escolhido), só o dia 1, como placeholder. Senão, do início até hoje+1 (sempre um dia
+     * a mais pronto pra preencher amanhã), sem passar do último dia real do mês.
+     */
+    private LocalDate resolveRangeEnd(BetMonth month, LocalDate today) {
+        if (month.getEndDate() != null) {
+            return month.getEndDate();
+        }
+        if (today.isBefore(month.getStartDate())) {
+            return month.getStartDate();
+        }
+        LocalDate monthLastDay = month.getStartDate().withDayOfMonth(month.getStartDate().lengthOfMonth());
+        LocalDate tomorrow = today.plusDays(1);
+        return tomorrow.isAfter(monthLastDay) ? monthLastDay : tomorrow;
+    }
+
+    private BetMonthDaysResponse computeMonthDays(BetMonth month, List<BetHouse> houses) {
+        LocalDate today = LocalDate.now();
+        boolean open = month.getEndDate() == null;
+        LocalDate rangeEnd = resolveRangeEnd(month, today);
+
         List<UUID> houseIds = houses.stream().map(BetHouse::getId).toList();
 
         // saldo de cada casa no instante em que o mês começou - ponto de partida do carry-forward.
         // vem do snapshot (não de "saldo antes da data"), porque duas datas de meses diferentes podem
         // ser o mesmo dia (ver BetMonthStartingBalance). Casas criadas depois do mês começar (sem
         // snapshot) partem de zero, que é o comportamento certo pra elas.
-        Map<UUID, BigDecimal> snapshotByHouse = betMonthStartingBalanceRepository.findByMonthId(monthId).stream()
+        Map<UUID, BigDecimal> snapshotByHouse = betMonthStartingBalanceRepository.findByMonthId(month.getId()).stream()
                 .collect(Collectors.toMap(s -> s.getHouse().getId(), BetMonthStartingBalance::getBalance));
         Map<UUID, BigDecimal> runningBalance = new LinkedHashMap<>();
         for (BetHouse h : houses) {
@@ -292,13 +310,19 @@ public class BetService {
 
     // ---- Saldo diário ----
 
-    public void updateHouseBalance(UUID houseId, UpdateBalanceRequest request) {
-        BetMonth month = findOwnedOpenMonth();
+    public void updateHouseBalance(UUID monthId, UUID houseId, UpdateBalanceRequest request) {
+        BetMonth month = betMonthRepository.findByIdAndUserId(monthId, CurrentUser.id())
+                .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
         BetHouse house = findOwnedHouse(houseId);
         LocalDate today = LocalDate.now();
         LocalDate date = request.date() != null ? request.date() : today;
-        if (date.isAfter(today) || date.isBefore(month.getStartDate())) {
-            throw new AppException("Só é possível editar dias do mês atual, até hoje.", HttpStatus.BAD_REQUEST);
+
+        // editável em qualquer mês (aberto ou já fechado) - dá pra corrigir/completar histórico -
+        // mas só dentro do próprio intervalo de dias reais desse mês, e nunca no futuro.
+        LocalDate monthLastDay = month.getStartDate().withDayOfMonth(month.getStartDate().lengthOfMonth());
+        LocalDate maxEditable = monthLastDay.isBefore(today) ? monthLastDay : today;
+        if (date.isBefore(month.getStartDate()) || date.isAfter(maxEditable)) {
+            throw new AppException("Data fora do intervalo editável desse mês.", HttpStatus.BAD_REQUEST);
         }
 
         BetDailyBalance entry = betDailyBalanceRepository.findByHouseIdAndDate(house.getId(), date)

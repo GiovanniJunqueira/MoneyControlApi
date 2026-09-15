@@ -38,14 +38,6 @@ public class BetMonth {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal startingBanca;
 
-    /**
-     * Banca total no instante em que o mês fechou - gravada direto (não inferida do próximo mês),
-     * pra continuar correta mesmo se o próximo mês for excluído depois. NULL = mês ainda aberto,
-     * ou fechado antes dessa coluna existir (nesse caso o service cai no fallback antigo).
-     */
-    @Column(precision = 12, scale = 2)
-    private BigDecimal endingBanca;
-
     /** Desempate pra quando dois meses começam no mesmo dia (start_date empatado) - ver BetService. */
     @Column(nullable = false)
     private Instant createdAt = Instant.now();

@@ -51,9 +51,10 @@ public class BetController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/bets/houses/{id}/balance")
-    public ResponseEntity<Void> updateBalance(@PathVariable UUID id, @Valid @RequestBody UpdateBalanceRequest request) {
-        betService.updateHouseBalance(id, request);
+    @PostMapping("/bets/months/{monthId}/houses/{houseId}/balance")
+    public ResponseEntity<Void> updateBalance(@PathVariable UUID monthId, @PathVariable UUID houseId,
+                                               @Valid @RequestBody UpdateBalanceRequest request) {
+        betService.updateHouseBalance(monthId, houseId, request);
         return ResponseEntity.noContent().build();
     }
 }
