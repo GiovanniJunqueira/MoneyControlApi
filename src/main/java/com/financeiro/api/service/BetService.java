@@ -24,7 +24,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -190,25 +189,20 @@ public class BetService {
         return months.stream().map(m -> toSummary(m, houses)).toList();
     }
 
+    /** O lucro total é a SOMA do lucro de cada mês (cada um já somando o resultado de todas as casas). */
     @Transactional(readOnly = true)
     public BetOverviewResponse overview() {
         UUID userId = CurrentUser.id();
         List<BetMonth> months = betMonthRepository.findByUserIdOrderByStartDateDescCreatedAtDesc(userId);
-        if (months.isEmpty()) {
-            return new BetOverviewResponse(BigDecimal.ZERO, BigDecimal.ZERO);
+        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
+
+        BigDecimal totalProfit = BigDecimal.ZERO;
+        BigDecimal totalProfitUnits = BigDecimal.ZERO;
+        for (BetMonth m : months) {
+            BetMonthDaysResponse days = computeMonthDays(m, houses);
+            totalProfit = totalProfit.add(days.profitLoss());
+            totalProfitUnits = totalProfitUnits.add(days.profitLossUnits());
         }
-
-        BigDecimal totalBanca = totalCurrentBanca(userId);
-        // "mais antigo" pra ancorar o lucro total = o mês criado primeiro DE VERDADE (createdAt), não
-        // o mais antigo por calendário - senão, criar um mês passado pra backfill (feature nova)
-        // bagunçaria o total, usando o saldo de HOJE (a startingBanca de um mês passado) como se
-        // fosse o ponto de partida de todo o histórico.
-        BetMonth oldestByCreation = months.stream().min(Comparator.comparing(BetMonth::getCreatedAt)).orElseThrow();
-        BigDecimal totalProfit = totalBanca.subtract(oldestByCreation.getStartingBanca());
-
-        BetMonth mostRecent = months.get(0); // startDate desc: o mais recente por calendário
-        LocalDate unitRefDate = mostRecent.getEndDate() != null ? mostRecent.getEndDate() : LocalDate.now();
-        BigDecimal totalProfitUnits = divideForUnits(totalProfit, resolveUnitValue(mostRecent, unitRefDate));
 
         return new BetOverviewResponse(totalProfit, totalProfitUnits);
     }
@@ -319,8 +313,12 @@ public class BetService {
                 .toList();
 
         BigDecimal endingBanca = days.isEmpty() ? month.getStartingBanca() : days.get(0).total();
-        BigDecimal profitLoss = endingBanca.subtract(month.getStartingBanca());
-        BigDecimal profitLossUnits = days.isEmpty() ? BigDecimal.ZERO : divideForUnits(profitLoss, days.get(0).unitValue());
+        // o lucro/prejuízo do mês é a SOMA do resultado de todas as casas (mesma fonte do card "Geral
+        // do mês, por casa") - não "banca final − banca inicial". Os dois normalmente batem, mas
+        // divergem quando tem ajuste manual de saldo inicial (depósito/saque) no meio do mês, que
+        // muda a banca real sem contar como resultado - o usuário quer os dois sempre consistentes.
+        BigDecimal profitLoss = houseTotalResult.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal profitLossUnits = houseTotalResultUnits.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return new BetMonthDaysResponse(month.getId(), month.getStartDate(), month.getEndDate(), open,
                 month.getStartingBanca(), endingBanca, profitLoss, profitLossUnits, houseSummaries, days);
