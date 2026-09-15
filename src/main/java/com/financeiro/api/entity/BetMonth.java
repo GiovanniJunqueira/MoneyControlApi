@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -36,4 +37,8 @@ public class BetMonth {
     /** Banca total (soma de todas as casas) no instante em que o mês começou - base pro cálculo de lucro/prejuízo. */
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal startingBanca;
+
+    /** Desempate pra quando dois meses começam no mesmo dia (start_date empatado) - ver BetService. */
+    @Column(nullable = false)
+    private Instant createdAt = Instant.now();
 }

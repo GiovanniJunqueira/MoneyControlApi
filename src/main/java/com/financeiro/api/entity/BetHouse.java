@@ -28,6 +28,10 @@ public class BetHouse {
 
     private String color;
 
+    /** Ordem de exibição, definida pelo usuário arrastando na tela de gerenciar casas. */
+    @Column(nullable = false)
+    private int position = 0;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

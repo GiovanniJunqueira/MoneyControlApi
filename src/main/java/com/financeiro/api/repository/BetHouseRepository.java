@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface BetHouseRepository extends JpaRepository<BetHouse, UUID> {
-    List<BetHouse> findByUserIdOrderByNameAsc(UUID userId);
+    List<BetHouse> findByUserIdOrderByPositionAsc(UUID userId);
     Optional<BetHouse> findByIdAndUserId(UUID id, UUID userId);
+    int countByUserId(UUID userId);
 }

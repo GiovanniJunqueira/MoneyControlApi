@@ -19,30 +19,35 @@ public class BetController {
         this.betService = betService;
     }
 
-    // GET /bets/months/current -> 200 com o mes aberto, ou 204 se ninguem iniciou um mes ainda
-    @GetMapping("/bets/months/current")
-    public ResponseEntity<BetMonthResponse> currentMonth() {
-        BetMonthResponse response = betService.currentMonth();
-        return response == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(response);
+    @GetMapping("/bets/overview")
+    public BetOverviewResponse overview() {
+        return betService.overview();
     }
 
     @GetMapping("/bets/months")
-    public List<BetMonthHistoryResponse> listMonths() {
+    public List<BetMonthSummaryResponse> listMonths() {
         return betService.listMonthsHistory();
     }
 
     @PostMapping("/bets/months")
-    public ResponseEntity<BetMonthResponse> startMonth(@Valid @RequestBody StartMonthRequest request) {
+    public ResponseEntity<BetMonthSummaryResponse> startMonth(@Valid @RequestBody StartMonthRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(betService.startMonth(request));
     }
 
+    @GetMapping("/bets/months/{id}/days")
+    public BetMonthDaysResponse listMonthDays(@PathVariable UUID id) {
+        return betService.listMonthDays(id);
+    }
+
     @PutMapping("/bets/unit-value")
-    public BetMonthResponse updateUnitValue(@Valid @RequestBody UpdateUnitValueRequest request) {
-        return betService.updateUnitValue(request);
+    public ResponseEntity<Void> updateUnitValue(@Valid @RequestBody UpdateUnitValueRequest request) {
+        betService.updateUnitValue(request);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/bets/houses/{id}/balance")
-    public BetHouseBalanceResponse updateBalance(@PathVariable UUID id, @Valid @RequestBody UpdateBalanceRequest request) {
-        return betService.updateHouseBalance(id, request);
+    public ResponseEntity<Void> updateBalance(@PathVariable UUID id, @Valid @RequestBody UpdateBalanceRequest request) {
+        betService.updateHouseBalance(id, request);
+        return ResponseEntity.noContent().build();
     }
 }

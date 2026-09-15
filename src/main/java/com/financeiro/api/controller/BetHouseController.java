@@ -2,6 +2,7 @@ package com.financeiro.api.controller;
 
 import com.financeiro.api.dto.bets.BetHouseRequest;
 import com.financeiro.api.dto.bets.BetHouseResponse;
+import com.financeiro.api.dto.bets.ReorderHousesRequest;
 import com.financeiro.api.service.BetService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -39,6 +40,12 @@ public class BetHouseController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         betService.deleteHouse(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/reorder")
+    public ResponseEntity<Void> reorder(@Valid @RequestBody ReorderHousesRequest request) {
+        betService.reorderHouses(request);
         return ResponseEntity.noContent().build();
     }
 }

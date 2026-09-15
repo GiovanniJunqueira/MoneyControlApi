@@ -9,5 +9,9 @@ import java.util.UUID;
 
 public interface BetMonthRepository extends JpaRepository<BetMonth, UUID> {
     Optional<BetMonth> findByUserIdAndEndDateIsNull(UUID userId);
-    List<BetMonth> findByUserIdOrderByStartDateDesc(UUID userId);
+
+    /** Mais recente primeiro; desempata por createdAt quando dois meses começam no mesmo dia. */
+    List<BetMonth> findByUserIdOrderByStartDateDescCreatedAtDesc(UUID userId);
+
+    Optional<BetMonth> findByIdAndUserId(UUID id, UUID userId);
 }
