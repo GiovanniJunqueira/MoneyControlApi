@@ -39,6 +39,12 @@ public class BetController {
         return betService.listMonthDays(id);
     }
 
+    @DeleteMapping("/bets/months/{id}")
+    public ResponseEntity<Void> deleteMonth(@PathVariable UUID id) {
+        betService.deleteMonth(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @PutMapping("/bets/unit-value")
     public ResponseEntity<Void> updateUnitValue(@Valid @RequestBody UpdateUnitValueRequest request) {
         betService.updateUnitValue(request);

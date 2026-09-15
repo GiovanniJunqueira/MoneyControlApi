@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -114,11 +115,6 @@ public class BetService {
         User user = userRepository.getReferenceById(userId);
         LocalDate today = LocalDate.now();
 
-        betMonthRepository.findByUserIdAndEndDateIsNull(userId).ifPresent(open -> {
-            open.setEndDate(today);
-            betMonthRepository.save(open);
-        });
-
         List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
         BigDecimal startingBanca = BigDecimal.ZERO;
         Map<BetHouse, BigDecimal> startingBalancesByHouse = new LinkedHashMap<>();
@@ -126,6 +122,16 @@ public class BetService {
             BigDecimal balance = currentBalance(h.getId());
             startingBalancesByHouse.put(h, balance);
             startingBanca = startingBanca.add(balance);
+        }
+
+        // fecha o mes aberto (se tiver) com a MESMA banca que vira a startingBanca do novo mes -
+        // grava direto no mes fechado pra não depender do novo mes continuar existindo depois.
+        Optional<BetMonth> previousOpen = betMonthRepository.findByUserIdAndEndDateIsNull(userId);
+        if (previousOpen.isPresent()) {
+            BetMonth open = previousOpen.get();
+            open.setEndDate(today);
+            open.setEndingBanca(startingBanca);
+            betMonthRepository.save(open);
         }
 
         BetMonth month = new BetMonth();
@@ -178,7 +184,10 @@ public class BetService {
             BigDecimal endingBanca;
             if (open) {
                 endingBanca = totalCurrentBanca(userId);
+            } else if (m.getEndingBanca() != null) {
+                endingBanca = m.getEndingBanca();
             } else if (i + 1 < chronological.size()) {
+                // fallback pra meses fechados antes da coluna ending_banca existir
                 endingBanca = chronological.get(i + 1).getStartingBanca();
             } else {
                 endingBanca = m.getStartingBanca();
@@ -237,11 +246,11 @@ public class BetService {
             runningBalance.put(h.getId(), snapshotByHouse.getOrDefault(h.getId(), BigDecimal.ZERO));
         }
 
-        Map<UUID, Map<LocalDate, BigDecimal>> entriesByHouse = new HashMap<>();
+        Map<UUID, Map<LocalDate, BetDailyBalance>> entriesByHouse = new HashMap<>();
         if (!houseIds.isEmpty()) {
             for (BetDailyBalance e : betDailyBalanceRepository
                     .findByHouseIdInAndDateBetweenOrderByDateAsc(houseIds, month.getStartDate(), rangeEnd)) {
-                entriesByHouse.computeIfAbsent(e.getHouse().getId(), k -> new HashMap<>()).put(e.getDate(), e.getBalance());
+                entriesByHouse.computeIfAbsent(e.getHouse().getId(), k -> new HashMap<>()).put(e.getDate(), e);
             }
         }
 
@@ -249,24 +258,26 @@ public class BetService {
         for (LocalDate date = month.getStartDate(); !date.isAfter(rangeEnd); date = date.plusDays(1)) {
             BigDecimal unitValue = resolveUnitValue(month, date);
             List<BetMonthDayHouseResponse> houseRows = new ArrayList<>();
-            BigDecimal dayTotal = BigDecimal.ZERO;
-            BigDecimal dayPrevTotal = BigDecimal.ZERO;
+            BigDecimal dayTotalOpening = BigDecimal.ZERO;
+            BigDecimal dayTotalClosing = BigDecimal.ZERO;
 
             for (BetHouse h : houses) {
-                BigDecimal prev = runningBalance.get(h.getId());
-                BigDecimal current = entriesByHouse.getOrDefault(h.getId(), Map.of()).getOrDefault(date, prev);
-                BigDecimal result = current.subtract(prev);
+                BigDecimal defaultOpening = runningBalance.get(h.getId());
+                BetDailyBalance entry = entriesByHouse.getOrDefault(h.getId(), Map.of()).get(date);
+                BigDecimal closing = entry != null ? entry.getBalance() : defaultOpening;
+                BigDecimal opening = entry != null && entry.getOpeningBalance() != null ? entry.getOpeningBalance() : defaultOpening;
+                BigDecimal result = closing.subtract(opening);
 
                 houseRows.add(new BetMonthDayHouseResponse(h.getId(), h.getName(), h.getColor(),
-                        current, divideForUnits(current, unitValue), result, divideForUnits(result, unitValue)));
+                        closing, divideForUnits(closing, unitValue), result, divideForUnits(result, unitValue)));
 
-                dayTotal = dayTotal.add(current);
-                dayPrevTotal = dayPrevTotal.add(prev);
-                runningBalance.put(h.getId(), current);
+                dayTotalOpening = dayTotalOpening.add(opening);
+                dayTotalClosing = dayTotalClosing.add(closing);
+                runningBalance.put(h.getId(), closing); // sempre carrega o saldo FINAL, mesmo se o inicial foi ajustado
             }
 
-            BigDecimal dayResult = dayTotal.subtract(dayPrevTotal);
-            days.add(new BetMonthDayResponse(date, unitValue, dayTotal, divideForUnits(dayTotal, unitValue),
+            BigDecimal dayResult = dayTotalClosing.subtract(dayTotalOpening);
+            days.add(new BetMonthDayResponse(date, unitValue, dayTotalClosing, divideForUnits(dayTotalClosing, unitValue),
                     dayResult, divideForUnits(dayResult, unitValue), houseRows));
         }
         Collections.reverse(days); // mais recente primeiro
@@ -296,7 +307,14 @@ public class BetService {
         entry.setMonth(month);
         entry.setDate(date);
         entry.setBalance(request.balance());
+        entry.setOpeningBalance(request.openingBalance());
         betDailyBalanceRepository.save(entry);
+    }
+
+    public void deleteMonth(UUID id) {
+        BetMonth month = betMonthRepository.findByIdAndUserId(id, CurrentUser.id())
+                .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
+        betMonthRepository.delete(month);
     }
 
     // ---- Helpers ----

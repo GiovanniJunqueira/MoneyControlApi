@@ -33,4 +33,12 @@ public class BetDailyBalance {
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal balance;
+
+    /**
+     * Saldo inicial do dia, só quando ajustado manualmente (ex: depósito/saque na casa) - NULL
+     * significa "usa o saldo final do dia anterior" (carry-forward automático). Existe pra separar
+     * resultado de aposta de movimentação de dinheiro, que não deve contar como lucro/prejuízo.
+     */
+    @Column(precision = 12, scale = 2)
+    private BigDecimal openingBalance;
 }
