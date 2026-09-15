@@ -1,5 +1,6 @@
 package com.financeiro.api.controller;
 
+import com.financeiro.api.dto.dashboard.DevedorGeralResponse;
 import com.financeiro.api.dto.dashboard.DevedoresDashboardResponse;
 import com.financeiro.api.dto.dashboard.GastosDashboardResponse;
 import com.financeiro.api.dto.dashboard.VisaoGeralResponse;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -37,5 +39,11 @@ public class DashboardController {
     @GetMapping("/dashboard/visao-geral")
     public VisaoGeralResponse visaoGeral(@RequestParam(required = false) String period) {
         return dashboardService.visaoGeral(period);
+    }
+
+    // GET /dashboard/devedores-geral - devedores de todas as abas, sem merge (mostra de qual aba e cada um)
+    @GetMapping("/dashboard/devedores-geral")
+    public List<DevedorGeralResponse> devedoresGeral() {
+        return dashboardService.devedoresGeral();
     }
 }

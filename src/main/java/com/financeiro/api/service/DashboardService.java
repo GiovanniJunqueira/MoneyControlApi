@@ -3,6 +3,7 @@ package com.financeiro.api.service;
 import com.financeiro.api.dto.category.CategoryResponse;
 import com.financeiro.api.dto.dashboard.*;
 import com.financeiro.api.dto.debt.DebtResponse;
+import com.financeiro.api.dto.debtor.DebtorSummaryResponse;
 import com.financeiro.api.dto.expense.ExpenseResponse;
 import com.financeiro.api.entity.Debt;
 import com.financeiro.api.entity.Expense;
@@ -30,13 +31,35 @@ public class DashboardService {
     private final DebtRepository debtRepository;
     private final TabRepository tabRepository;
     private final ModuleSettingsService moduleSettingsService;
+    private final DebtorService debtorService;
 
     public DashboardService(ExpenseRepository expenseRepository, DebtRepository debtRepository,
-                             TabRepository tabRepository, ModuleSettingsService moduleSettingsService) {
+                             TabRepository tabRepository, ModuleSettingsService moduleSettingsService,
+                             DebtorService debtorService) {
         this.expenseRepository = expenseRepository;
         this.debtRepository = debtRepository;
         this.tabRepository = tabRepository;
         this.moduleSettingsService = moduleSettingsService;
+        this.debtorService = debtorService;
+    }
+
+    /** Devedores de todas as abas do usuario, sem merge por nome (cada linha diz de qual aba veio) - usado na tela inicial. */
+    @Transactional(readOnly = true)
+    public List<DevedorGeralResponse> devedoresGeral() {
+        List<Tab> tabs = tabRepository.findByUserIdOrderByNameAsc(CurrentUser.id());
+        List<DevedorGeralResponse> result = new ArrayList<>();
+        for (Tab tab : tabs) {
+            for (DebtorSummaryResponse d : debtorService.list(tab.getId())) {
+                if (d.totalDevido().compareTo(BigDecimal.ZERO) > 0) {
+                    result.add(new DevedorGeralResponse(
+                            d.id(), d.name(), d.totalDevido(), d.quantidadeDividas(),
+                            tab.getId(), tab.getName(), tab.getColor()
+                    ));
+                }
+            }
+        }
+        result.sort((a, b) -> b.totalDevido().compareTo(a.totalDevido()));
+        return result;
     }
 
     @Transactional(readOnly = true)
