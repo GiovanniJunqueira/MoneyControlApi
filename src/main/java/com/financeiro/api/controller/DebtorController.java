@@ -27,9 +27,10 @@ public class DebtorController {
         return debtorService.list(tabId);
     }
 
+    // GET /tabs/{tabId}/debtors/{id}?period=2026-08 (opcional; sem o parâmetro usa o período fiscal atual da aba)
     @GetMapping("/{id}")
-    public DebtorDetailResponse detail(@PathVariable UUID tabId, @PathVariable UUID id) {
-        return debtorService.detail(id);
+    public DebtorDetailResponse detail(@PathVariable UUID tabId, @PathVariable UUID id, @RequestParam(required = false) String period) {
+        return debtorService.detail(id, period);
     }
 
     @PostMapping
