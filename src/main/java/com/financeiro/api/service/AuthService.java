@@ -9,6 +9,7 @@ import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.ModuleSettingsRepository;
 import com.financeiro.api.repository.TabRepository;
 import com.financeiro.api.repository.UserRepository;
+import com.financeiro.api.security.CurrentUser;
 import com.financeiro.api.security.JwtService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -74,7 +75,14 @@ public class AuthService {
         return new AuthResponse(toResponse(user), token);
     }
 
+    public UserResponse updateSettings(UpdateSettingsRequest request) {
+        User user = userRepository.findById(CurrentUser.id()).orElseThrow();
+        user.setBetsEnabled(request.betsEnabled());
+        userRepository.save(user);
+        return toResponse(user);
+    }
+
     private UserResponse toResponse(User user) {
-        return new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt());
+        return new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt(), user.isBetsEnabled());
     }
 }
