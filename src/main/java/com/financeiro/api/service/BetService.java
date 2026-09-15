@@ -272,6 +272,16 @@ public class BetService {
             }
         }
 
+        // soma do resultado (já em unidades, cada dia na taxa vigente daquele dia) de cada casa ao
+        // longo do mês inteiro - dias sem resultado contam 0, dias negativos SUBTRAEM normalmente
+        // (é só BigDecimal.add de valores que já vêm com o sinal certo, positivo ou negativo).
+        Map<UUID, BigDecimal> houseTotalResult = new LinkedHashMap<>();
+        Map<UUID, BigDecimal> houseTotalResultUnits = new LinkedHashMap<>();
+        for (BetHouse h : houses) {
+            houseTotalResult.put(h.getId(), BigDecimal.ZERO);
+            houseTotalResultUnits.put(h.getId(), BigDecimal.ZERO);
+        }
+
         List<BetMonthDayResponse> days = new ArrayList<>();
         for (LocalDate date = month.getStartDate(); !date.isAfter(rangeEnd); date = date.plusDays(1)) {
             BigDecimal unitValue = resolveUnitValue(month, date);
@@ -285,13 +295,16 @@ public class BetService {
                 BigDecimal closing = entry != null ? entry.getBalance() : defaultOpening;
                 BigDecimal opening = entry != null && entry.getOpeningBalance() != null ? entry.getOpeningBalance() : defaultOpening;
                 BigDecimal result = closing.subtract(opening);
+                BigDecimal resultUnits = divideForUnits(result, unitValue);
 
                 houseRows.add(new BetMonthDayHouseResponse(h.getId(), h.getName(), h.getColor(),
-                        closing, divideForUnits(closing, unitValue), result, divideForUnits(result, unitValue)));
+                        closing, divideForUnits(closing, unitValue), result, resultUnits));
 
                 dayTotalOpening = dayTotalOpening.add(opening);
                 dayTotalClosing = dayTotalClosing.add(closing);
                 runningBalance.put(h.getId(), closing); // sempre carrega o saldo FINAL, mesmo se o inicial foi ajustado
+                houseTotalResult.merge(h.getId(), result, BigDecimal::add);
+                houseTotalResultUnits.merge(h.getId(), resultUnits, BigDecimal::add);
             }
 
             BigDecimal dayResult = dayTotalClosing.subtract(dayTotalOpening);
@@ -300,12 +313,17 @@ public class BetService {
         }
         Collections.reverse(days); // mais recente primeiro
 
+        List<BetHouseMonthSummaryResponse> houseSummaries = houses.stream()
+                .map(h -> new BetHouseMonthSummaryResponse(h.getId(), h.getName(), h.getColor(),
+                        houseTotalResult.get(h.getId()), houseTotalResultUnits.get(h.getId())))
+                .toList();
+
         BigDecimal endingBanca = days.isEmpty() ? month.getStartingBanca() : days.get(0).total();
         BigDecimal profitLoss = endingBanca.subtract(month.getStartingBanca());
         BigDecimal profitLossUnits = days.isEmpty() ? BigDecimal.ZERO : divideForUnits(profitLoss, days.get(0).unitValue());
 
         return new BetMonthDaysResponse(month.getId(), month.getStartDate(), month.getEndDate(), open,
-                month.getStartingBanca(), endingBanca, profitLoss, profitLossUnits, days);
+                month.getStartingBanca(), endingBanca, profitLoss, profitLossUnits, houseSummaries, days);
     }
 
     // ---- Saldo diário ----
