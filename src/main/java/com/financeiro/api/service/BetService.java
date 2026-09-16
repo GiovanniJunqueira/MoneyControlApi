@@ -288,8 +288,9 @@ public class BetService {
                 BigDecimal result = closing.subtract(opening);
                 BigDecimal resultUnits = divideForUnits(result, unitValue);
 
+                BigDecimal openingOverride = entry != null ? entry.getOpeningBalance() : null;
                 houseRows.add(new BetMonthDayHouseResponse(h.getId(), h.getName(), h.getColor(),
-                        closing, divideForUnits(closing, unitValue), result, resultUnits));
+                        closing, divideForUnits(closing, unitValue), result, resultUnits, openingOverride));
 
                 dayTotalOpening = dayTotalOpening.add(opening);
                 dayTotalClosing = dayTotalClosing.add(closing);
