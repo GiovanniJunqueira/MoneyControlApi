@@ -49,6 +49,11 @@ public class Debt {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal paidAmount = BigDecimal.ZERO;
 
+    /** Liga as parcelas de uma dívida parcelada entre si - null = dívida avulsa (não parcelada). */
+    private UUID installmentGroupId;
+    private Integer installmentNumber;
+    private Integer installmentTotal;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

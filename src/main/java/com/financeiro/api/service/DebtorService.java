@@ -111,6 +111,7 @@ public class DebtorService {
     }
 
     private DebtResponse toDebtResponse(Debt d) {
-        return new DebtResponse(d.getId(), d.getAmount(), d.getReason(), d.getDate(), d.getStatus().name().toLowerCase(), d.getPaidAmount());
+        return new DebtResponse(d.getId(), d.getAmount(), d.getReason(), d.getDate(), d.getStatus().name().toLowerCase(), d.getPaidAmount(),
+                d.getInstallmentGroupId(), d.getInstallmentNumber(), d.getInstallmentTotal());
     }
 }

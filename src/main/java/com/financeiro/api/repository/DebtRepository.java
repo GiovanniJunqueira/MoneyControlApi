@@ -12,4 +12,5 @@ public interface DebtRepository extends JpaRepository<Debt, UUID> {
     Optional<Debt> findByIdAndUserId(UUID id, UUID userId);
     List<Debt> findByDebtorId(UUID debtorId);
     List<Debt> findByTabIdAndDateBetween(UUID tabId, LocalDate start, LocalDate end);
+    List<Debt> findByInstallmentGroupIdAndDateGreaterThanEqual(UUID installmentGroupId, LocalDate date);
 }

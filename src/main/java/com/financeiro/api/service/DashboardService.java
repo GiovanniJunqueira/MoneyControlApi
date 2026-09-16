@@ -183,7 +183,8 @@ public class DashboardService {
 
         List<ExpenseResponse> lancamentos = expenses.stream().map(e -> new ExpenseResponse(
                 e.getId(), e.getAmount(), e.getDescription(), e.getDate(),
-                new CategoryResponse(e.getCategory().getId(), e.getCategory().getName(), e.getCategory().getColor(), e.getCategory().getIcon())
+                new CategoryResponse(e.getCategory().getId(), e.getCategory().getName(), e.getCategory().getColor(), e.getCategory().getIcon()),
+                e.getRecurringGroupId()
         )).toList();
 
         return new GastosDashboardResponse(period, resumo, porCategoria, lancamentos);
@@ -205,7 +206,8 @@ public class DashboardService {
             PessoaAcc acc = porPessoaMap.computeIfAbsent(debtorId, k -> new PessoaAcc(debtorId, d.getDebtor().getName()));
             acc.totalDevido = acc.totalDevido.add(d.getAmount().subtract(d.getPaidAmount()));
             acc.totalPago = acc.totalPago.add(d.getPaidAmount());
-            acc.dividas.add(new DebtResponse(d.getId(), d.getAmount(), d.getReason(), d.getDate(), d.getStatus().name().toLowerCase(), d.getPaidAmount()));
+            acc.dividas.add(new DebtResponse(d.getId(), d.getAmount(), d.getReason(), d.getDate(), d.getStatus().name().toLowerCase(), d.getPaidAmount(),
+                    d.getInstallmentGroupId(), d.getInstallmentNumber(), d.getInstallmentTotal()));
         }
 
         List<PessoaResumo> porPessoa = new ArrayList<>();

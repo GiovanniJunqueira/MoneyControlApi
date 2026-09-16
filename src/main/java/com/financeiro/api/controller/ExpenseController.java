@@ -3,6 +3,7 @@ package com.financeiro.api.controller;
 import com.financeiro.api.dto.expense.ExpenseListResponse;
 import com.financeiro.api.dto.expense.ExpenseRequest;
 import com.financeiro.api.dto.expense.ExpenseResponse;
+import com.financeiro.api.dto.expense.ExpenseUpdateRequest;
 import com.financeiro.api.service.ExpenseService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -33,13 +34,14 @@ public class ExpenseController {
     }
 
     @PutMapping("/{id}")
-    public ExpenseResponse update(@PathVariable UUID tabId, @PathVariable UUID id, @Valid @RequestBody ExpenseRequest request) {
+    public ExpenseResponse update(@PathVariable UUID tabId, @PathVariable UUID id, @Valid @RequestBody ExpenseUpdateRequest request) {
         return expenseService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id) {
-        expenseService.delete(id);
+    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id,
+                                        @RequestParam(required = false, defaultValue = "false") boolean applyToFuture) {
+        expenseService.delete(id, applyToFuture);
         return ResponseEntity.noContent().build();
     }
 }

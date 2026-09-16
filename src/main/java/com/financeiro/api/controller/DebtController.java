@@ -33,8 +33,9 @@ public class DebtController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id) {
-        debtService.delete(id);
+    public ResponseEntity<Void> delete(@PathVariable UUID tabId, @PathVariable UUID id,
+                                        @RequestParam(required = false, defaultValue = "false") boolean applyToFuture) {
+        debtService.delete(id, applyToFuture);
         return ResponseEntity.noContent().build();
     }
 

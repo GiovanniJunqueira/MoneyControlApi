@@ -4,6 +4,7 @@ import com.financeiro.api.dto.category.CategoryResponse;
 import com.financeiro.api.dto.expense.ExpenseListResponse;
 import com.financeiro.api.dto.expense.ExpenseRequest;
 import com.financeiro.api.dto.expense.ExpenseResponse;
+import com.financeiro.api.dto.expense.ExpenseUpdateRequest;
 import com.financeiro.api.entity.Category;
 import com.financeiro.api.entity.Expense;
 import com.financeiro.api.entity.ModuleType;
@@ -22,10 +23,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @Service
 public class ExpenseService {
+
+    /** Gasto recorrente "indefinido" não tem data pra acabar - materializa esse tanto de meses de
+     * uma vez (não é infinito de verdade, mas cobre bastante tempo à frente sem precisar de um job
+     * de background pra ir gerando mais). Se a pessoa precisar de mais no futuro, cadastra de novo. */
+    private static final int INDEFINITE_HORIZON_MONTHS = 24;
 
     private final ExpenseRepository expenseRepository;
     private final CategoryRepository categoryRepository;
@@ -56,6 +63,7 @@ public class ExpenseService {
         return new ExpenseListResponse(period, expenses);
     }
 
+    @Transactional
     public ExpenseResponse create(UUID tabId, ExpenseRequest request) {
         Tab tab = findOwnedTab(tabId);
         Category category = categoryRepository.findByIdAndTabId(request.categoryId(), tab.getId())
@@ -63,35 +71,84 @@ public class ExpenseService {
 
         User user = userRepository.getReferenceById(CurrentUser.id());
 
-        Expense expense = new Expense();
-        expense.setUser(user);
-        expense.setTab(tab);
-        expense.setCategory(category);
-        expense.setAmount(request.amount());
-        expense.setDescription(request.description());
-        expense.setDate(request.date());
-        expenseRepository.save(expense);
+        int months = resolveOccurrenceCount(request.recurrence(), request.recurrenceMonths());
+        UUID recurringGroupId = months > 1 ? UUID.randomUUID() : null;
 
-        return toResponse(expense);
+        Expense first = null;
+        for (int i = 0; i < months; i++) {
+            Expense expense = new Expense();
+            expense.setUser(user);
+            expense.setTab(tab);
+            expense.setCategory(category);
+            expense.setAmount(request.amount());
+            expense.setDescription(request.description());
+            expense.setDate(request.date().plusMonths(i));
+            expense.setRecurringGroupId(recurringGroupId);
+            expenseRepository.save(expense);
+            if (i == 0) first = expense;
+        }
+
+        return toResponse(first);
     }
 
-    public ExpenseResponse update(UUID id, ExpenseRequest request) {
+    /** null/"NONE" = 1 ocorrência avulsa. "FIXED" = recurrenceMonths ocorrências. "INDEFINITE" = um
+     * horizonte longo materializado de uma vez (ver INDEFINITE_HORIZON_MONTHS). */
+    private int resolveOccurrenceCount(String recurrence, Integer recurrenceMonths) {
+        if (recurrence == null || recurrence.isBlank() || "NONE".equalsIgnoreCase(recurrence)) {
+            return 1;
+        }
+        if ("INDEFINITE".equalsIgnoreCase(recurrence)) {
+            return INDEFINITE_HORIZON_MONTHS;
+        }
+        if ("FIXED".equalsIgnoreCase(recurrence)) {
+            if (recurrenceMonths == null || recurrenceMonths < 1) {
+                throw new AppException("Informe por quantos meses o gasto se repete.", HttpStatus.BAD_REQUEST);
+            }
+            if (recurrenceMonths > 360) {
+                throw new AppException("Máximo de 360 meses de recorrência.", HttpStatus.BAD_REQUEST);
+            }
+            return recurrenceMonths;
+        }
+        throw new AppException("Tipo de recorrência inválido.", HttpStatus.BAD_REQUEST);
+    }
+
+    @Transactional
+    public ExpenseResponse update(UUID id, ExpenseUpdateRequest request) {
         Expense expense = findOwned(id);
 
         Category category = categoryRepository.findByIdAndTabId(request.categoryId(), expense.getTab().getId())
                 .orElseThrow(() -> new AppException("Categoria não encontrada.", HttpStatus.NOT_FOUND));
 
-        expense.setCategory(category);
-        expense.setAmount(request.amount());
-        expense.setDescription(request.description());
-        expense.setDate(request.date());
-        expenseRepository.save(expense);
+        if (request.applyToFuture() && expense.getRecurringGroupId() != null) {
+            List<Expense> occurrences = expenseRepository
+                    .findByRecurringGroupIdAndDateGreaterThanEqual(expense.getRecurringGroupId(), expense.getDate());
+            for (Expense e : occurrences) {
+                e.setCategory(category);
+                e.setAmount(request.amount());
+                e.setDescription(request.description());
+                // a data de cada ocorrência não muda aqui - só a categoria/valor/descrição se repetem.
+            }
+            expenseRepository.saveAll(occurrences);
+        } else {
+            expense.setCategory(category);
+            expense.setAmount(request.amount());
+            expense.setDescription(request.description());
+            expense.setDate(request.date());
+            expenseRepository.save(expense);
+        }
 
         return toResponse(expense);
     }
 
-    public void delete(UUID id) {
-        expenseRepository.delete(findOwned(id));
+    @Transactional
+    public void delete(UUID id, boolean applyToFuture) {
+        Expense expense = findOwned(id);
+        if (applyToFuture && expense.getRecurringGroupId() != null) {
+            expenseRepository.deleteAll(
+                    expenseRepository.findByRecurringGroupIdAndDateGreaterThanEqual(expense.getRecurringGroupId(), expense.getDate()));
+        } else {
+            expenseRepository.delete(expense);
+        }
     }
 
     private Expense findOwned(UUID id) {
@@ -120,7 +177,8 @@ public class ExpenseService {
         Category c = e.getCategory();
         return new ExpenseResponse(
                 e.getId(), e.getAmount(), e.getDescription(), e.getDate(),
-                new CategoryResponse(c.getId(), c.getName(), c.getColor(), c.getIcon())
+                new CategoryResponse(c.getId(), c.getName(), c.getColor(), c.getIcon()),
+                e.getRecurringGroupId()
         );
     }
 }

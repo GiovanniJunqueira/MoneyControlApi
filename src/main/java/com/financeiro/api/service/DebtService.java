@@ -11,9 +11,12 @@ import com.financeiro.api.repository.UserRepository;
 import com.financeiro.api.security.CurrentUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -35,6 +38,7 @@ public class DebtService {
         this.tabRepository = tabRepository;
     }
 
+    @Transactional
     public DebtResponse create(UUID tabId, DebtRequest request) {
         Tab tab = findOwnedTab(tabId);
         Debtor debtor = debtorRepository.findByIdAndTabId(request.debtorId(), tab.getId())
@@ -42,29 +46,75 @@ public class DebtService {
 
         User user = userRepository.getReferenceById(CurrentUser.id());
 
-        Debt debt = new Debt();
-        debt.setUser(user);
-        debt.setTab(tab);
-        debt.setDebtor(debtor);
-        debt.setAmount(request.amount());
-        debt.setReason(request.reason());
-        debt.setDate(request.date());
-        debtRepository.save(debt);
+        int installments = request.installments() != null && request.installments() > 1 ? request.installments() : 1;
+        if (installments > 360) {
+            throw new AppException("Máximo de 360 parcelas.", HttpStatus.BAD_REQUEST);
+        }
+        UUID installmentGroupId = installments > 1 ? UUID.randomUUID() : null;
 
-        return toResponse(debt);
+        // divide o total em N parcelas que somam exatamente o valor pedido - a diferença de
+        // arredondamento (se o total não divide igual) fica toda na última parcela.
+        BigDecimal installmentAmount = installments > 1
+                ? request.amount().divide(BigDecimal.valueOf(installments), 2, RoundingMode.DOWN)
+                : request.amount();
+        BigDecimal accumulated = BigDecimal.ZERO;
+
+        Debt first = null;
+        for (int i = 0; i < installments; i++) {
+            BigDecimal amount = (i == installments - 1) ? request.amount().subtract(accumulated) : installmentAmount;
+            accumulated = accumulated.add(amount);
+
+            Debt debt = new Debt();
+            debt.setUser(user);
+            debt.setTab(tab);
+            debt.setDebtor(debtor);
+            debt.setAmount(amount);
+            debt.setReason(request.reason());
+            debt.setDate(request.date().plusMonths(i));
+            if (installmentGroupId != null) {
+                debt.setInstallmentGroupId(installmentGroupId);
+                debt.setInstallmentNumber(i + 1);
+                debt.setInstallmentTotal(installments);
+            }
+            debtRepository.save(debt);
+            if (i == 0) first = debt;
+        }
+
+        return toResponse(first);
     }
 
+    @Transactional
     public DebtResponse update(UUID id, DebtUpdateRequest request) {
         Debt debt = findOwned(id);
-        debt.setAmount(request.amount());
-        debt.setReason(request.reason());
-        debt.setDate(request.date());
-        debtRepository.save(debt);
+
+        if (request.applyToFuture() && debt.getInstallmentGroupId() != null) {
+            List<Debt> installments = debtRepository
+                    .findByInstallmentGroupIdAndDateGreaterThanEqual(debt.getInstallmentGroupId(), debt.getDate());
+            for (Debt d : installments) {
+                d.setAmount(request.amount());
+                d.setReason(request.reason());
+                // a data de cada parcela não muda aqui - só valor/motivo se repetem.
+            }
+            debtRepository.saveAll(installments);
+        } else {
+            debt.setAmount(request.amount());
+            debt.setReason(request.reason());
+            debt.setDate(request.date());
+            debtRepository.save(debt);
+        }
+
         return toResponse(debt);
     }
 
-    public void delete(UUID id) {
-        debtRepository.delete(findOwned(id));
+    @Transactional
+    public void delete(UUID id, boolean applyToFuture) {
+        Debt debt = findOwned(id);
+        if (applyToFuture && debt.getInstallmentGroupId() != null) {
+            debtRepository.deleteAll(
+                    debtRepository.findByInstallmentGroupIdAndDateGreaterThanEqual(debt.getInstallmentGroupId(), debt.getDate()));
+        } else {
+            debtRepository.delete(debt);
+        }
     }
 
     public DebtResponse registerPayment(UUID debtId, PaymentRequest request) {
@@ -104,6 +154,7 @@ public class DebtService {
     }
 
     private DebtResponse toResponse(Debt d) {
-        return new DebtResponse(d.getId(), d.getAmount(), d.getReason(), d.getDate(), d.getStatus().name().toLowerCase(), d.getPaidAmount());
+        return new DebtResponse(d.getId(), d.getAmount(), d.getReason(), d.getDate(), d.getStatus().name().toLowerCase(), d.getPaidAmount(),
+                d.getInstallmentGroupId(), d.getInstallmentNumber(), d.getInstallmentTotal());
     }
 }

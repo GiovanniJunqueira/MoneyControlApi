@@ -41,6 +41,9 @@ public class Expense {
     @Column(nullable = false)
     private LocalDate date;
 
+    /** Liga as várias ocorrências de um gasto recorrente entre si - null = gasto avulso. */
+    private UUID recurringGroupId;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 

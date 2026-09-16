@@ -11,6 +11,7 @@ public record ExpenseResponse(
         BigDecimal amount,
         String description,
         LocalDate date,
-        CategoryResponse category
+        CategoryResponse category,
+        UUID recurringGroupId
 ) {
 }
