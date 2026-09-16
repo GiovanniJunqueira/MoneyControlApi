@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +31,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -232,6 +234,21 @@ public class BetService {
         List<BetMonth> months = betMonthRepository.findByUserIdOrderByStartDateDescCreatedAtDesc(userId);
         List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
         return months.stream().map(m -> toSummary(m, houses)).toList();
+    }
+
+    /** Resumo do mês de UM USUÁRIO ESPECÍFICO num ano/mês exato - usado pelo ranking de competição
+     * pra comparar o resultado de cada participante sem expor nada além do total do mês dele. Vazio
+     * se a pessoa nunca começou um mês nesse período. */
+    @Transactional(readOnly = true)
+    public Optional<BetMonthSummaryResponse> summaryForUserAndPeriod(UUID userId, int year, int month) {
+        LocalDate startDate;
+        try {
+            startDate = LocalDate.of(year, month, 1);
+        } catch (DateTimeException e) {
+            return Optional.empty();
+        }
+        return betMonthRepository.findByUserIdAndStartDate(userId, startDate)
+                .map(betMonth -> toSummary(betMonth, betHouseRepository.findByUserIdOrderByPositionAsc(userId)));
     }
 
     /** O lucro total é a SOMA do lucro de cada mês (cada um já somando o resultado de todas as casas). */
