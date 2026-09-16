@@ -12,6 +12,8 @@ public record BetMonthDayHouseResponse(
         BigDecimal result,
         BigDecimal resultUnits,
         /** Ajuste manual do saldo inicial já salvo pra esse dia (null = automático/carry-forward). */
-        BigDecimal openingOverride
+        BigDecimal openingOverride,
+        UUID groupId,
+        String groupName
 ) {
 }

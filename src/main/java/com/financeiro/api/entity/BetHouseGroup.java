@@ -9,11 +9,11 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "bet_houses")
+@Table(name = "bet_house_groups")
 @Getter
 @Setter
 @NoArgsConstructor
-public class BetHouse {
+public class BetHouseGroup {
 
     @Id
     @GeneratedValue
@@ -25,17 +25,6 @@ public class BetHouse {
 
     @Column(nullable = false)
     private String name;
-
-    private String color;
-
-    /** Ordem de exibição, definida pelo usuário arrastando na tela de gerenciar casas. */
-    @Column(nullable = false)
-    private int position = 0;
-
-    /** Agrupamento opcional (ex: várias sub-contas de uma mesma casa mãe) - null = sem grupo. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "group_id")
-    private BetHouseGroup group;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

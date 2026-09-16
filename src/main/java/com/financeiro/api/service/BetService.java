@@ -3,12 +3,14 @@ package com.financeiro.api.service;
 import com.financeiro.api.dto.bets.*;
 import com.financeiro.api.entity.BetDailyBalance;
 import com.financeiro.api.entity.BetHouse;
+import com.financeiro.api.entity.BetHouseGroup;
 import com.financeiro.api.entity.BetMonth;
 import com.financeiro.api.entity.BetMonthStartingBalance;
 import com.financeiro.api.entity.BetUnitValueChange;
 import com.financeiro.api.entity.User;
 import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.BetDailyBalanceRepository;
+import com.financeiro.api.repository.BetHouseGroupRepository;
 import com.financeiro.api.repository.BetHouseRepository;
 import com.financeiro.api.repository.BetMonthRepository;
 import com.financeiro.api.repository.BetMonthStartingBalanceRepository;
@@ -35,18 +37,21 @@ import java.util.stream.Collectors;
 public class BetService {
 
     private final BetHouseRepository betHouseRepository;
+    private final BetHouseGroupRepository betHouseGroupRepository;
     private final BetMonthRepository betMonthRepository;
     private final BetUnitValueChangeRepository betUnitValueChangeRepository;
     private final BetDailyBalanceRepository betDailyBalanceRepository;
     private final BetMonthStartingBalanceRepository betMonthStartingBalanceRepository;
     private final UserRepository userRepository;
 
-    public BetService(BetHouseRepository betHouseRepository, BetMonthRepository betMonthRepository,
+    public BetService(BetHouseRepository betHouseRepository, BetHouseGroupRepository betHouseGroupRepository,
+                       BetMonthRepository betMonthRepository,
                        BetUnitValueChangeRepository betUnitValueChangeRepository,
                        BetDailyBalanceRepository betDailyBalanceRepository,
                        BetMonthStartingBalanceRepository betMonthStartingBalanceRepository,
                        UserRepository userRepository) {
         this.betHouseRepository = betHouseRepository;
+        this.betHouseGroupRepository = betHouseGroupRepository;
         this.betMonthRepository = betMonthRepository;
         this.betUnitValueChangeRepository = betUnitValueChangeRepository;
         this.betDailyBalanceRepository = betDailyBalanceRepository;
@@ -74,6 +79,7 @@ public class BetService {
         return toHouseResponse(house);
     }
 
+    @Transactional
     public BetHouseResponse updateHouse(UUID id, BetHouseRequest request) {
         BetHouse house = findOwnedHouse(id);
         house.setName(request.name());
@@ -84,6 +90,44 @@ public class BetService {
 
     public void deleteHouse(UUID id) {
         betHouseRepository.delete(findOwnedHouse(id));
+    }
+
+    // ---- Agrupamento de casas ----
+
+    @Transactional(readOnly = true)
+    public List<BetHouseGroupResponse> listHouseGroups() {
+        return betHouseGroupRepository.findByUserIdOrderByCreatedAtAsc(CurrentUser.id())
+                .stream().map(g -> new BetHouseGroupResponse(g.getId(), g.getName())).toList();
+    }
+
+    public BetHouseGroupResponse createHouseGroup(BetHouseGroupRequest request) {
+        User user = userRepository.getReferenceById(CurrentUser.id());
+        BetHouseGroup group = new BetHouseGroup();
+        group.setUser(user);
+        group.setName(request.name());
+        betHouseGroupRepository.save(group);
+        return new BetHouseGroupResponse(group.getId(), group.getName());
+    }
+
+    /** Exclui o grupo - as casas que pertenciam a ele voltam a ficar sem grupo (ON DELETE SET NULL). */
+    public void deleteHouseGroup(UUID id) {
+        BetHouseGroup group = betHouseGroupRepository.findByIdAndUserId(id, CurrentUser.id())
+                .orElseThrow(() -> new AppException("Grupo não encontrado.", HttpStatus.NOT_FOUND));
+        betHouseGroupRepository.delete(group);
+    }
+
+    @Transactional
+    public BetHouseResponse assignHouseGroup(UUID houseId, AssignHouseGroupRequest request) {
+        BetHouse house = findOwnedHouse(houseId);
+        if (request.groupId() == null) {
+            house.setGroup(null);
+        } else {
+            BetHouseGroup group = betHouseGroupRepository.findByIdAndUserId(request.groupId(), CurrentUser.id())
+                    .orElseThrow(() -> new AppException("Grupo não encontrado.", HttpStatus.NOT_FOUND));
+            house.setGroup(group);
+        }
+        betHouseRepository.save(house);
+        return toHouseResponse(house);
     }
 
     public void reorderHouses(ReorderHousesRequest request) {
@@ -109,6 +153,7 @@ public class BetService {
 
     // ---- Mês ----
 
+    @Transactional
     public BetMonthSummaryResponse startMonth(StartMonthRequest request) {
         UUID userId = CurrentUser.id();
         User user = userRepository.getReferenceById(userId);
@@ -246,6 +291,8 @@ public class BetService {
         LocalDate rangeEnd = resolveRangeEnd(month, today);
 
         List<UUID> houseIds = houses.stream().map(BetHouse::getId).toList();
+        Map<UUID, String> groupNames = betHouseGroupRepository.findByUserIdOrderByCreatedAtAsc(month.getUser().getId()).stream()
+                .collect(Collectors.toMap(BetHouseGroup::getId, BetHouseGroup::getName));
 
         // saldo de cada casa no instante em que o mês começou - ponto de partida do carry-forward.
         // vem do snapshot (não de "saldo antes da data"), porque duas datas de meses diferentes podem
@@ -272,11 +319,15 @@ public class BetService {
         for (BetHouse h : houses) {
             houseTotalResult.put(h.getId(), BigDecimal.ZERO);
         }
+        // mesma soma que houseTotalResult, mas por grupo - só ganha entrada quando alguma casa do
+        // grupo aparece num dia, então grupos sem casa nenhuma nunca aparecem no resumo.
+        Map<UUID, BigDecimal> groupTotalResult = new LinkedHashMap<>();
 
         List<BetMonthDayResponse> days = new ArrayList<>();
         for (LocalDate date = month.getStartDate(); !date.isAfter(rangeEnd); date = date.plusDays(1)) {
             BigDecimal unitValue = resolveUnitValue(month, date);
             List<BetMonthDayHouseResponse> houseRows = new ArrayList<>();
+            Map<UUID, BigDecimal[]> groupDayTotals = new LinkedHashMap<>(); // groupId -> [closing, opening]
             BigDecimal dayTotalOpening = BigDecimal.ZERO;
             BigDecimal dayTotalClosing = BigDecimal.ZERO;
 
@@ -289,18 +340,37 @@ public class BetService {
                 BigDecimal resultUnits = divideForUnits(result, unitValue);
 
                 BigDecimal openingOverride = entry != null ? entry.getOpeningBalance() : null;
+                UUID groupId = h.getGroup() != null ? h.getGroup().getId() : null;
+                String groupName = groupId != null ? groupNames.get(groupId) : null;
                 houseRows.add(new BetMonthDayHouseResponse(h.getId(), h.getName(), h.getColor(),
-                        closing, divideForUnits(closing, unitValue), result, resultUnits, openingOverride));
+                        closing, divideForUnits(closing, unitValue), result, resultUnits, openingOverride,
+                        groupId, groupName));
 
                 dayTotalOpening = dayTotalOpening.add(opening);
                 dayTotalClosing = dayTotalClosing.add(closing);
                 runningBalance.put(h.getId(), closing); // sempre carrega o saldo FINAL, mesmo se o inicial foi ajustado
                 houseTotalResult.merge(h.getId(), result, BigDecimal::add);
+                if (groupId != null) {
+                    BigDecimal[] acc = groupDayTotals.computeIfAbsent(groupId, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+                    acc[0] = acc[0].add(closing);
+                    acc[1] = acc[1].add(opening);
+                    groupTotalResult.merge(groupId, result, BigDecimal::add);
+                }
             }
+
+            List<BetMonthDayGroupResponse> groupRows = groupDayTotals.entrySet().stream()
+                    .map(e -> {
+                        BigDecimal gClosing = e.getValue()[0];
+                        BigDecimal gOpening = e.getValue()[1];
+                        BigDecimal gResult = gClosing.subtract(gOpening);
+                        return new BetMonthDayGroupResponse(e.getKey(), groupNames.get(e.getKey()),
+                                gClosing, divideForUnits(gClosing, unitValue), gResult, divideForUnits(gResult, unitValue));
+                    })
+                    .toList();
 
             BigDecimal dayResult = dayTotalClosing.subtract(dayTotalOpening);
             days.add(new BetMonthDayResponse(date, unitValue, dayTotalClosing, divideForUnits(dayTotalClosing, unitValue),
-                    dayResult, divideForUnits(dayResult, unitValue), houseRows));
+                    dayResult, divideForUnits(dayResult, unitValue), houseRows, groupRows));
         }
         Collections.reverse(days); // mais recente primeiro
 
@@ -317,12 +387,20 @@ public class BetService {
         BigDecimal profitLossUnits = divideForUnits(profitLoss, referenceUnitValue);
 
         List<BetHouseMonthSummaryResponse> houseSummaries = houses.stream()
-                .map(h -> new BetHouseMonthSummaryResponse(h.getId(), h.getName(), h.getColor(),
-                        houseTotalResult.get(h.getId()), divideForUnits(houseTotalResult.get(h.getId()), referenceUnitValue)))
+                .map(h -> {
+                    UUID groupId = h.getGroup() != null ? h.getGroup().getId() : null;
+                    return new BetHouseMonthSummaryResponse(h.getId(), h.getName(), h.getColor(),
+                            houseTotalResult.get(h.getId()), divideForUnits(houseTotalResult.get(h.getId()), referenceUnitValue),
+                            groupId, groupId != null ? groupNames.get(groupId) : null);
+                })
+                .toList();
+        List<BetHouseGroupMonthSummaryResponse> groupSummaries = groupTotalResult.entrySet().stream()
+                .map(e -> new BetHouseGroupMonthSummaryResponse(e.getKey(), groupNames.get(e.getKey()),
+                        e.getValue(), divideForUnits(e.getValue(), referenceUnitValue)))
                 .toList();
 
         return new BetMonthDaysResponse(month.getId(), month.getStartDate(), month.getEndDate(), open,
-                month.getStartingBanca(), endingBanca, profitLoss, profitLossUnits, houseSummaries, days);
+                month.getStartingBanca(), endingBanca, profitLoss, profitLossUnits, houseSummaries, groupSummaries, days);
     }
 
     // ---- Saldo diário ----
@@ -350,6 +428,7 @@ public class BetService {
      * a transferência na hora, sem gerar resultado (nem temporariamente, até o resultado real do dia
      * ser lançado depois pelo fluxo normal de editar saldo).
      */
+    @Transactional
     public void transferWithBank(UUID monthId, UUID houseId, TransferRequest request) {
         UUID userId = CurrentUser.id();
         BetMonth month = betMonthRepository.findByIdAndUserId(monthId, userId)
@@ -474,6 +553,8 @@ public class BetService {
     }
 
     private BetHouseResponse toHouseResponse(BetHouse h) {
-        return new BetHouseResponse(h.getId(), h.getName(), h.getColor(), h.getPosition());
+        BetHouseGroup group = h.getGroup();
+        return new BetHouseResponse(h.getId(), h.getName(), h.getColor(), h.getPosition(),
+                group != null ? group.getId() : null, group != null ? group.getName() : null);
     }
 }

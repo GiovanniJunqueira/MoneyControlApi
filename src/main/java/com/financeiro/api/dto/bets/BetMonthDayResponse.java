@@ -11,6 +11,7 @@ public record BetMonthDayResponse(
         BigDecimal totalUnits,
         BigDecimal result,
         BigDecimal resultUnits,
-        List<BetMonthDayHouseResponse> houses
+        List<BetMonthDayHouseResponse> houses,
+        List<BetMonthDayGroupResponse> groups
 ) {
 }

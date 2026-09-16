@@ -15,6 +15,7 @@ public record BetMonthDaysResponse(
         BigDecimal profitLoss,
         BigDecimal profitLossUnits,
         List<BetHouseMonthSummaryResponse> houseSummaries,
+        List<BetHouseGroupMonthSummaryResponse> groupSummaries,
         List<BetMonthDayResponse> days
 ) {
 }

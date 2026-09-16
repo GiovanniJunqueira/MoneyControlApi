@@ -8,6 +8,8 @@ public record BetHouseMonthSummaryResponse(
         String name,
         String color,
         BigDecimal totalResult,
-        BigDecimal totalResultUnits
+        BigDecimal totalResultUnits,
+        UUID groupId,
+        String groupName
 ) {
 }

@@ -1,5 +1,6 @@
 package com.financeiro.api.controller;
 
+import com.financeiro.api.dto.bets.AssignHouseGroupRequest;
 import com.financeiro.api.dto.bets.BetHouseRequest;
 import com.financeiro.api.dto.bets.BetHouseResponse;
 import com.financeiro.api.dto.bets.ReorderHousesRequest;
@@ -47,5 +48,10 @@ public class BetHouseController {
     public ResponseEntity<Void> reorder(@Valid @RequestBody ReorderHousesRequest request) {
         betService.reorderHouses(request);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{id}/group")
+    public BetHouseResponse assignGroup(@PathVariable UUID id, @Valid @RequestBody AssignHouseGroupRequest request) {
+        return betService.assignHouseGroup(id, request);
     }
 }
