@@ -422,28 +422,24 @@ public class BetService {
     }
 
     /**
-     * Saque/depósito entre uma casa e a casa "Banco" (fixa por nome) - move dinheiro sem contar como
-     * resultado de aposta. Os dois lados têm saldo inicial E final ajustados juntos pelo mesmo delta
-     * (a casa perde, o Banco ganha, ou vice-versa no depósito) - assim o saldo de cada um já reflete
-     * a transferência na hora, sem gerar resultado (nem temporariamente, até o resultado real do dia
-     * ser lançado depois pelo fluxo normal de editar saldo).
+     * Saque/depósito entre uma casa e uma "conta" (outra casa qualquer, escolhida pela pessoa - não
+     * é mais fixo numa casa chamada "Banco", porque tem gente com mais de uma conta/banco) - move
+     * dinheiro sem contar como resultado de aposta. Os dois lados têm saldo inicial E final ajustados
+     * juntos pelo mesmo delta (a casa perde, a conta ganha, ou vice-versa no depósito) - assim o saldo
+     * de cada um já reflete a transferência na hora, sem gerar resultado (nem temporariamente, até o
+     * resultado real do dia ser lançado depois pelo fluxo normal de editar saldo).
      */
     @Transactional
-    public void transferWithBank(UUID monthId, UUID houseId, TransferRequest request) {
+    public void transferBetweenHouses(UUID monthId, UUID houseId, TransferRequest request) {
         UUID userId = CurrentUser.id();
         BetMonth month = betMonthRepository.findByIdAndUserId(monthId, userId)
                 .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
         BetHouse house = findOwnedHouse(houseId);
-        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
-        BetHouse banco = houses.stream()
-                .filter(h -> h.getName().equalsIgnoreCase("Banco"))
-                .findFirst()
-                .orElseThrow(() -> new AppException(
-                        "Nenhuma casa chamada \"Banco\" encontrada. Crie uma casa com esse nome pra usar saque/depósito.",
-                        HttpStatus.NOT_FOUND));
-        if (banco.getId().equals(house.getId())) {
-            throw new AppException("Escolha uma casa diferente do Banco.", HttpStatus.BAD_REQUEST);
+        BetHouse counterpart = findOwnedHouse(request.counterpartHouseId());
+        if (counterpart.getId().equals(house.getId())) {
+            throw new AppException("Escolha uma conta diferente da casa selecionada.", HttpStatus.BAD_REQUEST);
         }
+        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
 
         boolean isWithdrawal = "SAQUE".equalsIgnoreCase(request.type());
         boolean isDeposit = "DEPOSITO".equalsIgnoreCase(request.type());
@@ -454,7 +450,7 @@ public class BetService {
         LocalDate date = resolveEditableDate(month, request.date());
         BigDecimal amount = request.amount();
         BigDecimal houseDelta = isWithdrawal ? amount.negate() : amount;
-        BigDecimal bancoDelta = isWithdrawal ? amount : amount.negate();
+        BigDecimal counterpartDelta = isWithdrawal ? amount : amount.negate();
 
         BetMonthDaysResponse computed = computeMonthDays(month, houses);
         BetMonthDayResponse dayData = computed.days().stream()
@@ -466,7 +462,7 @@ public class BetService {
         // como resultado (nem temporariamente, antes do resultado real do dia ser lançado depois) e
         // a ordem entre "fazer a transferência" e "lançar o resultado do dia" deixa de importar.
         applyTransferDelta(month, house, date, dayData, houseDelta);
-        applyTransferDelta(month, banco, date, dayData, bancoDelta);
+        applyTransferDelta(month, counterpart, date, dayData, counterpartDelta);
     }
 
     private void applyTransferDelta(BetMonth month, BetHouse house, LocalDate date, BetMonthDayResponse dayData, BigDecimal delta) {

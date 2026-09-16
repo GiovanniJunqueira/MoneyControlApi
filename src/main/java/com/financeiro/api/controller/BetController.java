@@ -61,7 +61,7 @@ public class BetController {
     @PostMapping("/bets/months/{monthId}/houses/{houseId}/transfer")
     public ResponseEntity<Void> transfer(@PathVariable UUID monthId, @PathVariable UUID houseId,
                                           @Valid @RequestBody TransferRequest request) {
-        betService.transferWithBank(monthId, houseId, request);
+        betService.transferBetweenHouses(monthId, houseId, request);
         return ResponseEntity.noContent().build();
     }
 }
