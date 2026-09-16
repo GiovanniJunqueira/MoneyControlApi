@@ -266,14 +266,11 @@ public class BetService {
             }
         }
 
-        // soma do resultado (já em unidades, cada dia na taxa vigente daquele dia) de cada casa ao
-        // longo do mês inteiro - dias sem resultado contam 0, dias negativos SUBTRAEM normalmente
-        // (é só BigDecimal.add de valores que já vêm com o sinal certo, positivo ou negativo).
+        // soma do resultado em R$ (não em unidades ainda) de cada casa ao longo do mês inteiro - dias
+        // sem resultado contam 0, dias negativos SUBTRAEM normalmente (BigDecimal.add com o sinal certo).
         Map<UUID, BigDecimal> houseTotalResult = new LinkedHashMap<>();
-        Map<UUID, BigDecimal> houseTotalResultUnits = new LinkedHashMap<>();
         for (BetHouse h : houses) {
             houseTotalResult.put(h.getId(), BigDecimal.ZERO);
-            houseTotalResultUnits.put(h.getId(), BigDecimal.ZERO);
         }
 
         List<BetMonthDayResponse> days = new ArrayList<>();
@@ -298,7 +295,6 @@ public class BetService {
                 dayTotalClosing = dayTotalClosing.add(closing);
                 runningBalance.put(h.getId(), closing); // sempre carrega o saldo FINAL, mesmo se o inicial foi ajustado
                 houseTotalResult.merge(h.getId(), result, BigDecimal::add);
-                houseTotalResultUnits.merge(h.getId(), resultUnits, BigDecimal::add);
             }
 
             BigDecimal dayResult = dayTotalClosing.subtract(dayTotalOpening);
@@ -307,18 +303,22 @@ public class BetService {
         }
         Collections.reverse(days); // mais recente primeiro
 
-        List<BetHouseMonthSummaryResponse> houseSummaries = houses.stream()
-                .map(h -> new BetHouseMonthSummaryResponse(h.getId(), h.getName(), h.getColor(),
-                        houseTotalResult.get(h.getId()), houseTotalResultUnits.get(h.getId())))
-                .toList();
-
         BigDecimal endingBanca = days.isEmpty() ? month.getStartingBanca() : days.get(0).total();
         // o lucro/prejuízo do mês é a SOMA do resultado de todas as casas (mesma fonte do card "Geral
         // do mês, por casa") - não "banca final − banca inicial". Os dois normalmente batem, mas
         // divergem quando tem ajuste manual de saldo inicial (depósito/saque) no meio do mês, que
         // muda a banca real sem contar como resultado - o usuário quer os dois sempre consistentes.
         BigDecimal profitLoss = houseTotalResult.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal profitLossUnits = houseTotalResultUnits.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        // converte pra unidades numa ÚNICA divisão do total em R$ (na taxa mais recente do mês), em vez
+        // de somar unidades já arredondadas dia a dia - somar arredondamentos acumula erro (ex: 11 dias
+        // cada um arredondado à parte podem fechar em 199,11 quando a divisão do total dá 199,12).
+        BigDecimal referenceUnitValue = days.isEmpty() ? month.getInitialUnitValue() : days.get(0).unitValue();
+        BigDecimal profitLossUnits = divideForUnits(profitLoss, referenceUnitValue);
+
+        List<BetHouseMonthSummaryResponse> houseSummaries = houses.stream()
+                .map(h -> new BetHouseMonthSummaryResponse(h.getId(), h.getName(), h.getColor(),
+                        houseTotalResult.get(h.getId()), divideForUnits(houseTotalResult.get(h.getId()), referenceUnitValue)))
+                .toList();
 
         return new BetMonthDaysResponse(month.getId(), month.getStartDate(), month.getEndDate(), open,
                 month.getStartingBanca(), endingBanca, profitLoss, profitLossUnits, houseSummaries, days);
