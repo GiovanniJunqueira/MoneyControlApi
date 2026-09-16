@@ -330,16 +330,7 @@ public class BetService {
         BetMonth month = betMonthRepository.findByIdAndUserId(monthId, CurrentUser.id())
                 .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
         BetHouse house = findOwnedHouse(houseId);
-        LocalDate today = LocalDate.now();
-        LocalDate date = request.date() != null ? request.date() : today;
-
-        // editável em qualquer mês (aberto ou já fechado) - dá pra corrigir/completar histórico -
-        // mas só dentro do próprio intervalo de dias reais desse mês, e nunca no futuro.
-        LocalDate monthLastDay = month.getStartDate().withDayOfMonth(month.getStartDate().lengthOfMonth());
-        LocalDate maxEditable = monthLastDay.isBefore(today) ? monthLastDay : today;
-        if (date.isBefore(month.getStartDate()) || date.isAfter(maxEditable)) {
-            throw new AppException("Data fora do intervalo editável desse mês.", HttpStatus.BAD_REQUEST);
-        }
+        LocalDate date = resolveEditableDate(month, request.date());
 
         BetDailyBalance entry = betDailyBalanceRepository.findByHouseIdAndDate(house.getId(), date)
                 .orElseGet(BetDailyBalance::new);
@@ -349,6 +340,90 @@ public class BetService {
         entry.setBalance(request.balance());
         entry.setOpeningBalance(request.openingBalance());
         betDailyBalanceRepository.save(entry);
+    }
+
+    /**
+     * Saque/depósito entre uma casa e a casa "Banco" (fixa por nome) - move dinheiro sem contar como
+     * resultado de aposta. Os dois lados têm saldo inicial E final ajustados juntos pelo mesmo delta
+     * (a casa perde, o Banco ganha, ou vice-versa no depósito) - assim o saldo de cada um já reflete
+     * a transferência na hora, sem gerar resultado (nem temporariamente, até o resultado real do dia
+     * ser lançado depois pelo fluxo normal de editar saldo).
+     */
+    public void transferWithBank(UUID monthId, UUID houseId, TransferRequest request) {
+        UUID userId = CurrentUser.id();
+        BetMonth month = betMonthRepository.findByIdAndUserId(monthId, userId)
+                .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
+        BetHouse house = findOwnedHouse(houseId);
+        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
+        BetHouse banco = houses.stream()
+                .filter(h -> h.getName().equalsIgnoreCase("Banco"))
+                .findFirst()
+                .orElseThrow(() -> new AppException(
+                        "Nenhuma casa chamada \"Banco\" encontrada. Crie uma casa com esse nome pra usar saque/depósito.",
+                        HttpStatus.NOT_FOUND));
+        if (banco.getId().equals(house.getId())) {
+            throw new AppException("Escolha uma casa diferente do Banco.", HttpStatus.BAD_REQUEST);
+        }
+
+        boolean isWithdrawal = "SAQUE".equalsIgnoreCase(request.type());
+        boolean isDeposit = "DEPOSITO".equalsIgnoreCase(request.type());
+        if (!isWithdrawal && !isDeposit) {
+            throw new AppException("Tipo inválido - use SAQUE ou DEPOSITO.", HttpStatus.BAD_REQUEST);
+        }
+
+        LocalDate date = resolveEditableDate(month, request.date());
+        BigDecimal amount = request.amount();
+        BigDecimal houseDelta = isWithdrawal ? amount.negate() : amount;
+        BigDecimal bancoDelta = isWithdrawal ? amount : amount.negate();
+
+        BetMonthDaysResponse computed = computeMonthDays(month, houses);
+        BetMonthDayResponse dayData = computed.days().stream()
+                .filter(d -> d.date().equals(date))
+                .findFirst()
+                .orElseThrow(() -> new AppException("Dia fora do intervalo editável desse mês.", HttpStatus.BAD_REQUEST));
+
+        // move o saldo inicial E final juntos, dos dois lados - assim a transferência nunca aparece
+        // como resultado (nem temporariamente, antes do resultado real do dia ser lançado depois) e
+        // a ordem entre "fazer a transferência" e "lançar o resultado do dia" deixa de importar.
+        applyTransferDelta(month, house, date, dayData, houseDelta);
+        applyTransferDelta(month, banco, date, dayData, bancoDelta);
+    }
+
+    private void applyTransferDelta(BetMonth month, BetHouse house, LocalDate date, BetMonthDayResponse dayData, BigDecimal delta) {
+        BetMonthDayHouseResponse h = findHouseInDay(dayData, house.getId());
+        BigDecimal opening = h.balance().subtract(h.result());
+        BigDecimal closing = h.balance();
+        saveBalanceEntry(month, house, date, closing.add(delta), opening.add(delta));
+    }
+
+    private BetMonthDayHouseResponse findHouseInDay(BetMonthDayResponse dayData, UUID houseId) {
+        return dayData.houses().stream()
+                .filter(h -> h.houseId().equals(houseId))
+                .findFirst()
+                .orElseThrow(() -> new AppException("Casa não encontrada nesse dia.", HttpStatus.BAD_REQUEST));
+    }
+
+    private void saveBalanceEntry(BetMonth month, BetHouse house, LocalDate date, BigDecimal balance, BigDecimal openingOverride) {
+        BetDailyBalance entry = betDailyBalanceRepository.findByHouseIdAndDate(house.getId(), date)
+                .orElseGet(BetDailyBalance::new);
+        entry.setHouse(house);
+        entry.setMonth(month);
+        entry.setDate(date);
+        entry.setBalance(balance);
+        entry.setOpeningBalance(openingOverride);
+        betDailyBalanceRepository.save(entry);
+    }
+
+    /** Valida e resolve a data (null = hoje) contra o intervalo editável desse mês (aberto ou fechado, nunca no futuro). */
+    private LocalDate resolveEditableDate(BetMonth month, LocalDate requestedDate) {
+        LocalDate today = LocalDate.now();
+        LocalDate date = requestedDate != null ? requestedDate : today;
+        LocalDate monthLastDay = month.getStartDate().withDayOfMonth(month.getStartDate().lengthOfMonth());
+        LocalDate maxEditable = monthLastDay.isBefore(today) ? monthLastDay : today;
+        if (date.isBefore(month.getStartDate()) || date.isAfter(maxEditable)) {
+            throw new AppException("Data fora do intervalo editável desse mês.", HttpStatus.BAD_REQUEST);
+        }
+        return date;
     }
 
     public void deleteMonth(UUID id) {

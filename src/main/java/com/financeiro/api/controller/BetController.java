@@ -57,4 +57,11 @@ public class BetController {
         betService.updateHouseBalance(monthId, houseId, request);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/bets/months/{monthId}/houses/{houseId}/transfer")
+    public ResponseEntity<Void> transfer(@PathVariable UUID monthId, @PathVariable UUID houseId,
+                                          @Valid @RequestBody TransferRequest request) {
+        betService.transferWithBank(monthId, houseId, request);
+        return ResponseEntity.noContent().build();
+    }
 }
