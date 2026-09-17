@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 
 public record BetOverviewResponse(
         BigDecimal totalProfitLoss,
-        BigDecimal totalProfitLossUnits
+        BigDecimal totalProfitLossUnits,
+        BigDecimal totalBanca,
+        BigDecimal totalBancaUnits
 ) {
 }
