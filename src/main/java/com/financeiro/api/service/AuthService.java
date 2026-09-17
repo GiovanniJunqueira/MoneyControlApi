@@ -16,6 +16,9 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.UUID;
+
 @Service
 public class AuthService {
 
@@ -24,17 +27,20 @@ public class AuthService {
     private final ModuleSettingsRepository moduleSettingsRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final MailService mailService;
 
     public AuthService(UserRepository userRepository,
                         TabRepository tabRepository,
                         ModuleSettingsRepository moduleSettingsRepository,
                         PasswordEncoder passwordEncoder,
-                        JwtService jwtService) {
+                        JwtService jwtService,
+                        MailService mailService) {
         this.userRepository = userRepository;
         this.tabRepository = tabRepository;
         this.moduleSettingsRepository = moduleSettingsRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.mailService = mailService;
     }
 
     public AuthResponse register(RegisterRequest request) {
@@ -73,6 +79,32 @@ public class AuthService {
 
         String token = jwtService.generateToken(user.getId());
         return new AuthResponse(toResponse(user), token);
+    }
+
+    /**
+     * Sempre "sucede" do ponto de vista do chamador, exista ou não o e-mail - não revela se
+     * uma conta existe pra quem não tá logado. Um token novo sobrescreve qualquer um anterior
+     * (só um reset pendente por vez faz sentido pro tamanho desse app).
+     */
+    public void forgotPassword(ForgotPasswordRequest request) {
+        userRepository.findByEmail(request.email()).ifPresent(user -> {
+            String token = UUID.randomUUID().toString();
+            user.setResetToken(token);
+            user.setResetTokenExpiresAt(LocalDateTime.now().plusHours(1));
+            userRepository.save(user);
+            mailService.sendPasswordReset(user.getEmail(), user.getName(), token);
+        });
+    }
+
+    public void resetPassword(ResetPasswordRequest request) {
+        User user = userRepository.findByResetToken(request.token())
+                .filter(u -> u.getResetTokenExpiresAt() != null && u.getResetTokenExpiresAt().isAfter(LocalDateTime.now()))
+                .orElseThrow(() -> new AppException("Link inválido ou expirado. Peça um novo.", HttpStatus.BAD_REQUEST));
+
+        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        user.setResetToken(null);
+        user.setResetTokenExpiresAt(null);
+        userRepository.save(user);
     }
 
     public UserResponse updateSettings(UpdateSettingsRequest request) {

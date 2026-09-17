@@ -37,6 +37,9 @@ Toda config sensível vem de variáveis de ambiente, com defaults pensados pro P
 | `DATABASE_PASSWORD` | `postgres` | senha do banco |
 | `JWT_SECRET` | valor fraco de dev | segredo do JWT — **trocar por um valor forte em produção** |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | origens permitidas, separadas por vírgula |
+| `FRONTEND_URL` | `http://localhost:5173` | usada pra montar o link de "esqueci minha senha" enviado por e-mail |
+| `MAIL_USERNAME` | vazio | conta Gmail usada pra enviar e-mail (login SMTP) — sem ela, o reset de senha não consegue enviar o e-mail |
+| `MAIL_PASSWORD` | vazio | senha de app do Gmail (não a senha normal da conta) dessa mesma conta |
 
 Em produção, defina essas variáveis no ambiente da plataforma de deploy (nunca commitando valores reais).
 

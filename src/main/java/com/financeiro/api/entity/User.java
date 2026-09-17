@@ -33,4 +33,10 @@ public class User {
 
     @Column(nullable = false)
     private boolean betsEnabled = false;
+
+    @Column(name = "reset_token")
+    private String resetToken;
+
+    @Column(name = "reset_token_expires_at")
+    private LocalDateTime resetTokenExpiresAt;
 }
