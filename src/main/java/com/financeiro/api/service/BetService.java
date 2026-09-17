@@ -174,7 +174,16 @@ public class BetService {
         BigDecimal startingBanca = BigDecimal.ZERO;
         Map<BetHouse, BigDecimal> startingBalancesByHouse = new LinkedHashMap<>();
         for (BetHouse h : houses) {
-            BigDecimal balance = currentBalance(h.getId());
+            // mês totalmente no passado: usa o saldo que a casa tinha NAQUELA época (antes do mês
+            // começar), não o saldo de agora - senão uma casa criada/alimentada só meses depois
+            // (ex: redistribuição de "restante das casas" feita no mês atual) vaza seu saldo de HOJE
+            // pra trás, inflando a banca de um mês em que ela nem existia ainda. Mês atual/futuro
+            // continua usando o saldo real de agora mesmo (é literalmente o que "abrir um mês novo"
+            // deve fazer).
+            BigDecimal balance = fullyPast
+                    ? betDailyBalanceRepository.findTopByHouseIdAndDateLessThanOrderByDateDesc(h.getId(), chosenStart)
+                            .map(BetDailyBalance::getBalance).orElse(BigDecimal.ZERO)
+                    : currentBalance(h.getId());
             startingBalancesByHouse.put(h, balance);
             startingBanca = startingBanca.add(balance);
         }
