@@ -6,6 +6,7 @@ public record BetOverviewResponse(
         BigDecimal totalProfitLoss,
         BigDecimal totalProfitLossUnits,
         BigDecimal totalBanca,
-        BigDecimal totalBancaUnits
+        BigDecimal totalBancaUnits,
+        BigDecimal currentUnitValue
 ) {
 }

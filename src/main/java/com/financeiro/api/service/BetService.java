@@ -289,7 +289,7 @@ public class BetService {
         }
 
         return new BetOverviewResponse(totalProfit, divideForUnits(totalProfit, currentUnitValue),
-                totalBanca, divideForUnits(totalBanca, currentUnitValue));
+                totalBanca, divideForUnits(totalBanca, currentUnitValue), currentUnitValue);
     }
 
     /** Lista todos os dias do mês (do início até hoje+1 ou até o fechamento), com o resultado do dia e por casa. */
