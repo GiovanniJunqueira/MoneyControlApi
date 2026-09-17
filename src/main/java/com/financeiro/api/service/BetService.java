@@ -262,10 +262,12 @@ public class BetService {
 
     /**
      * O lucro total é a SOMA do lucro de cada mês (cada um já somando o resultado de todas as casas).
-     * A banca total é o saldo real ATUAL de todas as casas - as unidades dela usam o valor de unidade
-     * do mês mais recente (o "mês atual" do ponto de vista do usuário), resolvido na data de referência
-     * (endDate se ele já fechou, hoje se ainda está aberto) - não faz sentido somar unidade de meses
-     * com valores de unidade diferentes entre si.
+     * A banca total é o saldo real ATUAL de todas as casas. As unidades das duas (lucro e banca) usam
+     * o valor de unidade do mês mais recente (o "mês atual" do ponto de vista do usuário), resolvido na
+     * data de referência (endDate se ele já fechou, hoje se ainda está aberto) - dividindo o total em R$
+     * numa ÚNICA conta, não somando a unidade já calculada de cada mês (que usa o valor de unidade
+     * daquela época) - o valor da unidade muda com o tempo, então somar unidades de meses com unidades
+     * diferentes entre si não representa o total em unidades de HOJE. Pedido explícito do usuário.
      */
     @Transactional(readOnly = true)
     public BetOverviewResponse overview() {
@@ -274,22 +276,20 @@ public class BetService {
         List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
 
         BigDecimal totalProfit = BigDecimal.ZERO;
-        BigDecimal totalProfitUnits = BigDecimal.ZERO;
         for (BetMonth m : months) {
-            BetMonthDaysResponse days = computeMonthDays(m, houses);
-            totalProfit = totalProfit.add(days.profitLoss());
-            totalProfitUnits = totalProfitUnits.add(days.profitLossUnits());
+            totalProfit = totalProfit.add(computeMonthDays(m, houses).profitLoss());
         }
-
         BigDecimal totalBanca = totalCurrentBanca(userId);
-        BigDecimal totalBancaUnits = BigDecimal.ZERO;
+
+        BigDecimal currentUnitValue = BigDecimal.ZERO;
         if (!months.isEmpty()) {
             BetMonth latest = months.get(0);
             LocalDate refDate = latest.getEndDate() != null ? latest.getEndDate() : LocalDate.now();
-            totalBancaUnits = divideForUnits(totalBanca, resolveUnitValue(latest, refDate));
+            currentUnitValue = resolveUnitValue(latest, refDate);
         }
 
-        return new BetOverviewResponse(totalProfit, totalProfitUnits, totalBanca, totalBancaUnits);
+        return new BetOverviewResponse(totalProfit, divideForUnits(totalProfit, currentUnitValue),
+                totalBanca, divideForUnits(totalBanca, currentUnitValue));
     }
 
     /** Lista todos os dias do mês (do início até hoje+1 ou até o fechamento), com o resultado do dia e por casa. */
