@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -39,4 +40,12 @@ public class BetHouse {
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    /**
+     * A partir dessa data (inclusive), a casa some da lista de casas ativas e do dia-a-dia de
+     * QUALQUER mês (passado ou futuro) - sem apagar nada do que já foi registrado antes dela.
+     * Null = nunca foi arquivada (comportamento de sempre). "Excluir" uma casa no
+     * gerenciamento passou a ser isso (setar pra hoje), não mais um DELETE de verdade.
+     */
+    private LocalDate archivedFrom;
 }

@@ -40,7 +40,13 @@ public class BetHouseController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        betService.deleteHouse(id);
+        betService.archiveHouse(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{id}/restore")
+    public ResponseEntity<Void> restore(@PathVariable UUID id) {
+        betService.unarchiveHouse(id);
         return ResponseEntity.noContent().build();
     }
 

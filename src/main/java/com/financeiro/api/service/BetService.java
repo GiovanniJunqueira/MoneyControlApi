@@ -90,8 +90,24 @@ public class BetService {
         return toHouseResponse(house);
     }
 
-    public void deleteHouse(UUID id) {
-        betHouseRepository.delete(findOwnedHouse(id));
+    /**
+     * "Excluir" uma casa não é mais um DELETE de verdade - arquiva ela a partir de hoje, sem
+     * apagar nenhum saldo já registrado. computeMonthDays() para de mostrá-la em qualquer dia
+     * >= hoje (em qualquer mês, passado ou futuro), mas os dias anteriores continuam intactos.
+     * Pedido explícito do usuário: precisa poder "esconder" uma casa que não usa mais sem perder
+     * o histórico dela (ex: uma casa antiga que só existiu no ano passado).
+     */
+    public void archiveHouse(UUID id) {
+        BetHouse house = findOwnedHouse(id);
+        house.setArchivedFrom(LocalDate.now());
+        betHouseRepository.save(house);
+    }
+
+    /** Reverte o arquivamento - a casa volta a aparecer normalmente a partir de agora. */
+    public void unarchiveHouse(UUID id) {
+        BetHouse house = findOwnedHouse(id);
+        house.setArchivedFrom(null);
+        betHouseRepository.save(house);
     }
 
     // ---- Agrupamento de casas ----
@@ -362,6 +378,9 @@ public class BetService {
         // mesma soma que houseTotalResult, mas por grupo - só ganha entrada quando alguma casa do
         // grupo aparece num dia, então grupos sem casa nenhuma nunca aparecem no resumo.
         Map<UUID, BigDecimal> groupTotalResult = new LinkedHashMap<>();
+        // casas que realmente apareceram em pelo menos um dia visível (não arquivadas naquele
+        // dia) - usado pra tirar do "Geral do mês" uma casa arquivada antes do mês nem começar.
+        java.util.Set<UUID> appearedHouseIds = new java.util.LinkedHashSet<>();
 
         List<BetMonthDayResponse> days = new ArrayList<>();
         for (LocalDate date = month.getStartDate(); !date.isAfter(rangeEnd); date = date.plusDays(1)) {
@@ -372,6 +391,12 @@ public class BetService {
             BigDecimal dayTotalClosing = BigDecimal.ZERO;
 
             for (BetHouse h : houses) {
+                // casa arquivada a partir dessa data (inclusive) - some do dia sem apagar nada do
+                // que já foi registrado antes. "Excluir" uma casa é isso, não some do histórico.
+                if (h.getArchivedFrom() != null && !date.isBefore(h.getArchivedFrom())) {
+                    continue;
+                }
+                appearedHouseIds.add(h.getId());
                 BigDecimal defaultOpening = runningBalance.get(h.getId());
                 BetDailyBalance entry = entriesByHouse.getOrDefault(h.getId(), Map.of()).get(date);
                 BigDecimal closing = entry != null ? entry.getBalance() : defaultOpening;
@@ -427,6 +452,7 @@ public class BetService {
         BigDecimal profitLossUnits = divideForUnits(profitLoss, referenceUnitValue);
 
         List<BetHouseMonthSummaryResponse> houseSummaries = houses.stream()
+                .filter(h -> appearedHouseIds.contains(h.getId()))
                 .map(h -> {
                     UUID groupId = h.getGroup() != null ? h.getGroup().getId() : null;
                     return new BetHouseMonthSummaryResponse(h.getId(), h.getName(), h.getColor(),
@@ -591,6 +617,6 @@ public class BetService {
     private BetHouseResponse toHouseResponse(BetHouse h) {
         BetHouseGroup group = h.getGroup();
         return new BetHouseResponse(h.getId(), h.getName(), h.getColor(), h.getPosition(),
-                group != null ? group.getId() : null, group != null ? group.getName() : null);
+                group != null ? group.getId() : null, group != null ? group.getName() : null, h.getArchivedFrom());
     }
 }
