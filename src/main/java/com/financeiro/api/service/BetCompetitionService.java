@@ -1,5 +1,6 @@
 package com.financeiro.api.service;
 
+import com.financeiro.api.dto.bets.BetCompetitionDayResultResponse;
 import com.financeiro.api.dto.bets.BetCompetitionRankingEntryResponse;
 import com.financeiro.api.dto.bets.BetCompetitionRankingResponse;
 import com.financeiro.api.dto.bets.BetCompetitionResponse;
@@ -112,8 +113,10 @@ public class BetCompetitionService {
                             .summaryForUserAndPeriod(memberUser.getId(), competition.getYear(), competition.getMonth());
                     BigDecimal profitLoss = summary.map(BetMonthSummaryResponse::profitLoss).orElse(BigDecimal.ZERO);
                     BigDecimal profitLossUnits = summary.map(BetMonthSummaryResponse::profitLossUnits).orElse(BigDecimal.ZERO);
+                    List<BetCompetitionDayResultResponse> recentDays = betService
+                            .recentDaysForUserAndPeriod(memberUser.getId(), competition.getYear(), competition.getMonth(), 3);
                     return new BetCompetitionRankingEntryResponse(0, memberUser.getId(), memberUser.getName(),
-                            memberUser.getId().equals(userId), summary.isPresent(), profitLoss, profitLossUnits);
+                            memberUser.getId().equals(userId), summary.isPresent(), profitLoss, profitLossUnits, recentDays);
                 })
                 .sorted(Comparator.comparing(BetCompetitionRankingEntryResponse::profitLossUnits).reversed())
                 .toList();
@@ -122,7 +125,7 @@ public class BetCompetitionService {
         for (int i = 0; i < entries.size(); i++) {
             BetCompetitionRankingEntryResponse e = entries.get(i);
             ranked.add(new BetCompetitionRankingEntryResponse(i + 1, e.userId(), e.userName(), e.isYou(), e.hasData(),
-                    e.profitLoss(), e.profitLossUnits()));
+                    e.profitLoss(), e.profitLossUnits(), e.recentDays()));
         }
 
         return new BetCompetitionRankingResponse(competition.getId(), competition.getName(), competition.getCode(),

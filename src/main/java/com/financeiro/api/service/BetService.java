@@ -276,6 +276,27 @@ public class BetService {
                 .map(betMonth -> toSummary(betMonth, betHouseRepository.findByUserIdOrderByPositionAsc(userId)));
     }
 
+    /** Os últimos N dias (mais recente primeiro) do mês de um usuário específico, só o resultado
+     * TOTAL de cada dia (sem casa nenhuma) - usado pelo ranking de competição pra expandir o
+     * resultado recente de qualquer participante sem vazar nada além disso (mesmo espírito de
+     * privacidade do summaryForUserAndPeriod acima). Vazio se a pessoa não tem mês nesse período. */
+    @Transactional(readOnly = true)
+    public List<BetCompetitionDayResultResponse> recentDaysForUserAndPeriod(UUID userId, int year, int month, int count) {
+        LocalDate startDate;
+        try {
+            startDate = LocalDate.of(year, month, 1);
+        } catch (DateTimeException e) {
+            return List.of();
+        }
+        return betMonthRepository.findByUserIdAndStartDate(userId, startDate)
+                .map(betMonth -> computeMonthDays(betMonth, betHouseRepository.findByUserIdOrderByPositionAsc(userId)))
+                .map(days -> days.days().stream()
+                        .limit(count)
+                        .map(d -> new BetCompetitionDayResultResponse(d.date(), d.result(), d.resultUnits()))
+                        .toList())
+                .orElse(List.of());
+    }
+
     /**
      * O lucro total é a SOMA do lucro de cada mês (cada um já somando o resultado de todas as casas).
      * A banca total é o saldo real ATUAL de todas as casas. As unidades das duas (lucro e banca) usam
