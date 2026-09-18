@@ -276,10 +276,11 @@ public class BetService {
                 .map(betMonth -> toSummary(betMonth, betHouseRepository.findByUserIdOrderByPositionAsc(userId)));
     }
 
-    /** Os últimos N dias (mais recente primeiro) do mês de um usuário específico, só o resultado
-     * TOTAL de cada dia (sem casa nenhuma) - usado pelo ranking de competição pra expandir o
-     * resultado recente de qualquer participante sem vazar nada além disso (mesmo espírito de
-     * privacidade do summaryForUserAndPeriod acima). Vazio se a pessoa não tem mês nesse período. */
+    /** Os últimos N dias (mais recente primeiro, nunca incluindo hoje+1) do mês de um usuário
+     * específico, só o resultado TOTAL de cada dia (sem casa nenhuma) - usado pelo ranking de
+     * competição pra expandir o resultado recente de qualquer participante sem vazar nada além
+     * disso (mesmo espírito de privacidade do summaryForUserAndPeriod acima). Vazio se a pessoa
+     * não tem mês nesse período. */
     @Transactional(readOnly = true)
     public List<BetCompetitionDayResultResponse> recentDaysForUserAndPeriod(UUID userId, int year, int month, int count) {
         LocalDate startDate;
@@ -288,9 +289,13 @@ public class BetService {
         } catch (DateTimeException e) {
             return List.of();
         }
+        LocalDate today = LocalDate.now();
         return betMonthRepository.findByUserIdAndStartDate(userId, startDate)
                 .map(betMonth -> computeMonthDays(betMonth, betHouseRepository.findByUserIdOrderByPositionAsc(userId)))
                 .map(days -> days.days().stream()
+                        // um mês aberto sempre mostra hoje+1 como espaço reservado (resolveRangeEnd) -
+                        // isso não é um "dia" de verdade ainda, então nunca entra nos "últimos dias".
+                        .filter(d -> !d.date().isAfter(today))
                         .limit(count)
                         .map(d -> new BetCompetitionDayResultResponse(d.date(), d.result(), d.resultUnits()))
                         .toList())
