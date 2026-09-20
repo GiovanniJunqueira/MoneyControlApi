@@ -1,7 +1,6 @@
 package com.financeiro.api.controller;
 
 import com.financeiro.api.dto.bets.BetFriendMonthDetailResponse;
-import com.financeiro.api.dto.bets.BetMonthSummaryResponse;
 import com.financeiro.api.dto.bets.FriendCodeResponse;
 import com.financeiro.api.dto.bets.FriendRequestResponse;
 import com.financeiro.api.dto.bets.FriendResponse;
@@ -63,13 +62,8 @@ public class BetFriendController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/{friendUserId}/months")
-    public List<BetMonthSummaryResponse> friendMonths(@PathVariable UUID friendUserId) {
-        return betFriendService.friendMonths(friendUserId);
-    }
-
-    @GetMapping("/{friendUserId}/months/{monthId}")
-    public BetFriendMonthDetailResponse friendMonthDetail(@PathVariable UUID friendUserId, @PathVariable UUID monthId) {
-        return betFriendService.friendMonthDetail(friendUserId, monthId);
+    @GetMapping("/{friendUserId}/current-month")
+    public BetFriendMonthDetailResponse friendCurrentMonth(@PathVariable UUID friendUserId) {
+        return betFriendService.friendCurrentMonth(friendUserId);
     }
 }

@@ -261,26 +261,17 @@ public class BetService {
         return months.stream().map(m -> toSummary(m, houses)).toList();
     }
 
-    /** Lista de meses de UM USUÁRIO ESPECÍFICO (não CurrentUser) - usado pela tela de amigo, que
-     * mostra o resumo mensal de quem te aceitou, nunca os próprios dados de quem está olhando. */
+    /** Detalhe do MÊS ATUAL (aberto) de UM USUÁRIO ESPECÍFICO (não CurrentUser), recortado só pro
+     * que uma amizade pode ver (resultado mensal por casa/grupo, sem o detalhe dia-a-dia) - usado
+     * pela tela de amigo. Pedido explícito do usuário: só o mês atual, não o histórico inteiro.
+     * Vazio se a pessoa não tem mês aberto agora. */
     @Transactional(readOnly = true)
-    public List<BetMonthSummaryResponse> monthsForUser(UUID userId) {
-        List<BetMonth> months = betMonthRepository.findByUserIdOrderByStartDateDescCreatedAtDesc(userId);
+    public Optional<BetFriendMonthDetailResponse> currentMonthDetailForUser(UUID userId) {
         List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
-        return months.stream().map(m -> toSummary(m, houses)).toList();
-    }
-
-    /** Detalhe de um mês de UM USUÁRIO ESPECÍFICO, recortado só pro que uma amizade pode ver
-     * (resultado mensal por casa/grupo, sem o detalhe dia-a-dia). {@code monthId} precisa pertencer
-     * a esse mesmo userId - quem chama (BetFriendService) já validou a amizade antes. */
-    @Transactional(readOnly = true)
-    public BetFriendMonthDetailResponse monthDetailForUser(UUID userId, UUID monthId) {
-        BetMonth month = betMonthRepository.findByIdAndUserId(monthId, userId)
-                .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
-        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
-        BetMonthDaysResponse days = computeMonthDays(month, houses);
-        return new BetFriendMonthDetailResponse(days.monthId(), days.startDate(), days.endDate(), days.open(),
-                days.profitLoss(), days.profitLossUnits(), days.houseSummaries(), days.groupSummaries());
+        return betMonthRepository.findByUserIdAndEndDateIsNull(userId)
+                .map(month -> computeMonthDays(month, houses))
+                .map(days -> new BetFriendMonthDetailResponse(days.monthId(), days.startDate(), days.endDate(), days.open(),
+                        days.profitLoss(), days.profitLossUnits(), days.houseSummaries(), days.groupSummaries()));
     }
 
     /** Resumo do mês de UM USUÁRIO ESPECÍFICO num ano/mês exato - usado pelo ranking de competição

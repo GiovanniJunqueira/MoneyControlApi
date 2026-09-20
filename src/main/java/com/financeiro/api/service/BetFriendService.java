@@ -1,7 +1,6 @@
 package com.financeiro.api.service;
 
 import com.financeiro.api.dto.bets.BetFriendMonthDetailResponse;
-import com.financeiro.api.dto.bets.BetMonthSummaryResponse;
 import com.financeiro.api.dto.bets.FriendCodeResponse;
 import com.financeiro.api.dto.bets.FriendRequestResponse;
 import com.financeiro.api.dto.bets.FriendResponse;
@@ -137,16 +136,12 @@ public class BetFriendService {
         betFriendshipRepository.delete(friendship);
     }
 
+    /** Só o mês atual (aberto) do amigo - pedido explícito do usuário, não o histórico inteiro. */
     @Transactional(readOnly = true)
-    public List<BetMonthSummaryResponse> friendMonths(UUID friendUserId) {
+    public BetFriendMonthDetailResponse friendCurrentMonth(UUID friendUserId) {
         requireFriends(friendUserId);
-        return betService.monthsForUser(friendUserId);
-    }
-
-    @Transactional(readOnly = true)
-    public BetFriendMonthDetailResponse friendMonthDetail(UUID friendUserId, UUID monthId) {
-        requireFriends(friendUserId);
-        return betService.monthDetailForUser(friendUserId, monthId);
+        return betService.currentMonthDetailForUser(friendUserId)
+                .orElseThrow(() -> new AppException("Essa pessoa não tem nenhum mês em andamento agora.", HttpStatus.NOT_FOUND));
     }
 
     private void requireFriends(UUID friendUserId) {
