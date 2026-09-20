@@ -261,19 +261,6 @@ public class BetService {
         return months.stream().map(m -> toSummary(m, houses)).toList();
     }
 
-    /** Detalhe do MÊS ATUAL (aberto) de UM USUÁRIO ESPECÍFICO (não CurrentUser), recortado só pro
-     * que uma amizade pode ver (resultado mensal por casa/grupo, sem o detalhe dia-a-dia) - usado
-     * pela tela de amigo. Pedido explícito do usuário: só o mês atual, não o histórico inteiro.
-     * Vazio se a pessoa não tem mês aberto agora. */
-    @Transactional(readOnly = true)
-    public Optional<BetFriendMonthDetailResponse> currentMonthDetailForUser(UUID userId) {
-        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(userId);
-        return betMonthRepository.findByUserIdAndEndDateIsNull(userId)
-                .map(month -> computeMonthDays(month, houses))
-                .map(days -> new BetFriendMonthDetailResponse(days.monthId(), days.startDate(), days.endDate(), days.open(),
-                        days.profitLoss(), days.profitLossUnits(), days.houseSummaries(), days.groupSummaries()));
-    }
-
     /** Resumo do mês de UM USUÁRIO ESPECÍFICO num ano/mês exato - usado pelo ranking de competição
      * pra comparar o resultado de cada participante sem expor nada além do total do mês dele. Vazio
      * se a pessoa nunca começou um mês nesse período. */

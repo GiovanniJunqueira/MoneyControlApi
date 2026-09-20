@@ -39,8 +39,4 @@ public class User {
 
     @Column(name = "reset_token_expires_at")
     private LocalDateTime resetTokenExpiresAt;
-
-    /** Código permanente pra outra pessoa te adicionar como amigo (módulo Bets) - gerado sob demanda. */
-    @Column(name = "friend_code")
-    private String friendCode;
 }
