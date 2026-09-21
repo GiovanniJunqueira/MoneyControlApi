@@ -330,8 +330,24 @@ public class BetService {
             currentUnitValue = resolveUnitValue(latest, refDate);
         }
 
+        // banca ATUAL de cada agrupamento (fora de um mês específico, igual totalBanca acima) - mesmo
+        // pedido do usuário de mostrar a banca por grupo, só que aqui pro cabeçalho geral da Home.
+        Map<UUID, String> groupNames = betHouseGroupRepository.findByUserIdOrderByCreatedAtAsc(userId).stream()
+                .collect(Collectors.toMap(BetHouseGroup::getId, BetHouseGroup::getName, (a, b) -> a, LinkedHashMap::new));
+        Map<UUID, BigDecimal> groupBancaTotals = new LinkedHashMap<>();
+        for (BetHouse h : houses) {
+            if (h.getGroup() != null) {
+                groupBancaTotals.merge(h.getGroup().getId(), currentBalance(h.getId()), BigDecimal::add);
+            }
+        }
+        BigDecimal finalCurrentUnitValue = currentUnitValue;
+        List<BetGroupBancaResponse> groupBanca = groupBancaTotals.entrySet().stream()
+                .map(e -> new BetGroupBancaResponse(e.getKey(), groupNames.get(e.getKey()),
+                        e.getValue(), divideForUnits(e.getValue(), finalCurrentUnitValue)))
+                .toList();
+
         return new BetOverviewResponse(totalProfit, divideForUnits(totalProfit, currentUnitValue),
-                totalBanca, divideForUnits(totalBanca, currentUnitValue), currentUnitValue);
+                totalBanca, divideForUnits(totalBanca, currentUnitValue), currentUnitValue, groupBanca);
     }
 
     /** Lista todos os dias do mês (do início até hoje+1 ou até o fechamento), com o resultado do dia e por casa. */
