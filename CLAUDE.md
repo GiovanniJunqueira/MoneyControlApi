@@ -104,6 +104,16 @@ O Render roda o container em UTC por padrão. `FinanceiroApiApplication.main()` 
 
 Está isolada em `util/FiscalPeriodCalculator.java`. Não é o mês de calendário — é uma janela custom que vai de `(closingDay + 1)` de um mês até `closingDay` do mês seguinte. Antes de mexer nisso, ler os comentários da classe com atenção; tem tratamento de meses com menos dias (clamp) que é fácil de quebrar.
 
+## Módulo Investimentos — lista global, separado de abas e de Bets
+
+Pedido do usuário: um lugar pra registrar quanto tem investido/guardado (ex: "BTG - CDB", "Itaú - CDB", cota de fundo imobiliário), quanto isso rende por mês, e uma projeção de quanto vai ter daqui a N meses. Decisões confirmadas com o usuário: **rendimento é uma taxa em % ao mês** (não um valor fixo em R$), e a lista é **global por usuário**, não por aba (o nome do investimento já diz de onde é, ex: "BTG - CDB").
+
+- **`investments`** (migration V21): `user_id`, `name`, `amount` (quanto está investido hoje), `monthly_rate_percent` (taxa mensal, ex: `1.25` = 1,25% ao mês), `created_at`. `InvestmentService` concentra CRUD + projeção, igual `BetService` concentra tudo do módulo Bets - o domínio é pequeno o suficiente pra não precisar separar.
+- **Projeção usa juros compostos** (`InvestmentService.compoundValue`): `valorProjetado = valor × (1 + taxa/100)^meses` - convenção padrão pra "rende X% ao mês" em produto financeiro brasileiro (CDB, Tesouro, etc.), não juros simples. `GET /investments/projection?months=N` calcula item por item e soma o total; `months` é validado entre 0 e 1200 (100 anos) pra não deixar alguém mandar um expoente absurdo. Cálculo intermediário usa escala alta (10 casas) antes de elevar à potência, só arredondando pra 2 casas no valor final - evita acumular erro de arredondamento mês a mês.
+- **"Sem rendimento"** não é um campo separado no banco - é só `monthlyRatePercent = 0` (elevar (1+0)^N = 1, então o valor projetado fica igual ao atual, sem previsão de rendimento). O frontend mostra um checkbox "Sem rendimento (só guardar o valor)" que, quando marcado, esconde o campo de taxa e manda `0`. Decisão deliberada de não criar um campo boolean redundante - o resultado é idêntico e a taxa continua editável depois se a pessoa mudar de ideia.
+- **Saque/depósito** (`POST /investments/{id}/transaction`, `InvestmentTransactionRequest{type: "SAQUE"|"DEPOSITO", amount}`): pedido explícito do usuário ("a pessoa possa sempre depositar ou sacar desse valor") - ajusta `amount` pelo delta sem precisar reeditar o investimento inteiro pelo modal de edição. Bloqueia saque que deixaria o valor negativo (`400`). Mesmo padrão visual do saque/depósito do Bets (`TransferModal.tsx`), mas mais simples - aqui não tem "conta de contrapartida", é só ajustar um valor só.
+- **Sem relação com abas nem com Bets** - `GET /investments` retorna a lista inteira do usuário de uma vez (sem paginação, não deve crescer muito) + `totalInvested` já somado, pra Home mostrar sem precisar somar no frontend.
+
 ## Estrutura de pacotes
 
 ```
