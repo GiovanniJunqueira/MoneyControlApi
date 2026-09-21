@@ -94,6 +94,10 @@ Esse módulo já pegou o mesmo bug duas vezes: qualquer `ORDER BY` numa coluna d
 
 `GET /dashboard/visao-geral` retorna `abas: TabSummary[]` com `totalGastoPeriodo` de cada aba — é isso que dimensiona as fatias do gráfico de rosca na tela inicial do `financeiro-web` (`DonutTabChart.tsx`). Se mudar o formato desse campo, o frontend quebra o cálculo de proporção.
 
+## Fuso horário do servidor
+
+O Render roda o container em UTC por padrão. `FinanceiroApiApplication.main()` seta `TimeZone.setDefault(TimeZone.getTimeZone("America/Sao_Paulo"))` como a PRIMEIRA coisa, antes de `SpringApplication.run()` - sem isso, todo `LocalDate.now()`/`LocalDateTime.now()` do sistema (usado o tempo todo no módulo Bets pra decidir "qual é o dia de hoje", `resolveRangeEnd`, `resolveEditableDate`, etc.) ficava 3h adiantado: a partir das 21h no horário de Brasília, o servidor já achava que era o dia seguinte. **Bug real relatado pelo usuário** (9h30 contando como se já fosse meia-noite - na prática era à noite, perto das 21h). `Instant.now()` (usado só pra desempate em `ORDER BY`, ver `BetMonth`/`BetUnitValueChange`) não é afetado porque é um instante absoluto, sem conversão de fuso.
+
 ## A lógica mais importante do sistema: período fiscal
 
 Está isolada em `util/FiscalPeriodCalculator.java`. Não é o mês de calendário — é uma janela custom que vai de `(closingDay + 1)` de um mês até `closingDay` do mês seguinte. Antes de mexer nisso, ler os comentários da classe com atenção; tem tratamento de meses com menos dias (clamp) que é fácil de quebrar.
