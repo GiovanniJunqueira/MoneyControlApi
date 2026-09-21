@@ -486,9 +486,23 @@ public class BetService {
                             groupId, groupId != null ? groupNames.get(groupId) : null);
                 })
                 .toList();
+        // banca ATUAL combinada de cada grupo (saldo de agora das casas dele, não resultado do mês) -
+        // mesma soma que dá o endingBanca geral, só que por grupo. runningBalance já tem o saldo FINAL
+        // de cada casa depois do loop de dias (carrega o closing de cada dia, ver dentro do loop acima).
+        Map<UUID, BigDecimal> groupBanca = new LinkedHashMap<>();
+        for (BetHouse h : houses) {
+            UUID groupId = h.getGroup() != null ? h.getGroup().getId() : null;
+            if (groupId != null && appearedHouseIds.contains(h.getId())) {
+                groupBanca.merge(groupId, runningBalance.get(h.getId()), BigDecimal::add);
+            }
+        }
         List<BetHouseGroupMonthSummaryResponse> groupSummaries = groupTotalResult.entrySet().stream()
-                .map(e -> new BetHouseGroupMonthSummaryResponse(e.getKey(), groupNames.get(e.getKey()),
-                        e.getValue(), divideForUnits(e.getValue(), referenceUnitValue)))
+                .map(e -> {
+                    BigDecimal banca = groupBanca.getOrDefault(e.getKey(), BigDecimal.ZERO);
+                    return new BetHouseGroupMonthSummaryResponse(e.getKey(), groupNames.get(e.getKey()),
+                            e.getValue(), divideForUnits(e.getValue(), referenceUnitValue),
+                            banca, divideForUnits(banca, referenceUnitValue));
+                })
                 .toList();
 
         return new BetMonthDaysResponse(month.getId(), month.getStartDate(), month.getEndDate(), open,
