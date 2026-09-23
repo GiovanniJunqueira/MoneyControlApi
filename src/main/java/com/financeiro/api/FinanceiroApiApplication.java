@@ -2,10 +2,12 @@ package com.financeiro.api;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.TimeZone;
 
 @SpringBootApplication
+@EnableScheduling
 public class FinanceiroApiApplication {
     public static void main(String[] args) {
         // o Render roda o container em UTC - sem isso, todo LocalDate.now()/LocalDateTime.now()

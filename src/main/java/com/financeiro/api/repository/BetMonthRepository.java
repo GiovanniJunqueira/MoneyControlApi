@@ -11,6 +11,9 @@ import java.util.UUID;
 public interface BetMonthRepository extends JpaRepository<BetMonth, UUID> {
     Optional<BetMonth> findByUserIdAndEndDateIsNull(UUID userId);
 
+    /** Todo mês aberto, de todo mundo - usado pelo job de virada automática (BetMonthRolloverScheduler). */
+    List<BetMonth> findByEndDateIsNull();
+
     /** Mais recente primeiro; desempata por createdAt quando dois meses começam no mesmo dia. */
     List<BetMonth> findByUserIdOrderByStartDateDescCreatedAtDesc(UUID userId);
 

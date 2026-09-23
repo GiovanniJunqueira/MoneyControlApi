@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DateTimeException;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -173,13 +174,22 @@ public class BetService {
 
     @Transactional
     public BetMonthSummaryResponse startMonth(StartMonthRequest request) {
-        UUID userId = CurrentUser.id();
+        return startMonthForUser(CurrentUser.id(), request.year(), request.month(), request.initialUnitValue());
+    }
+
+    /**
+     * Núcleo de "iniciar mês", sem depender de CurrentUser - extraído pra poder ser chamado tanto
+     * pelo endpoint autenticado (startMonth) quanto pelo job de virada automática (rolloverOpenMonths),
+     * que roda em background sem nenhum usuário logado na requisição.
+     */
+    @Transactional
+    public BetMonthSummaryResponse startMonthForUser(UUID userId, int year, int monthNumber, BigDecimal initialUnitValue) {
         User user = userRepository.getReferenceById(userId);
         LocalDate today = LocalDate.now();
 
         LocalDate chosenStart;
         try {
-            chosenStart = LocalDate.of(request.year(), request.month(), 1);
+            chosenStart = LocalDate.of(year, monthNumber, 1);
         } catch (Exception e) {
             throw new AppException("Mês/ano inválido.", HttpStatus.BAD_REQUEST);
         }
@@ -217,7 +227,7 @@ public class BetService {
         month.setUser(user);
         month.setStartDate(chosenStart);
         month.setEndDate(fullyPast ? chosenLastDay : null);
-        month.setInitialUnitValue(request.initialUnitValue());
+        month.setInitialUnitValue(initialUnitValue);
         month.setStartingBanca(startingBanca);
         betMonthRepository.save(month);
 
@@ -232,10 +242,44 @@ public class BetService {
         BetUnitValueChange change = new BetUnitValueChange();
         change.setMonth(month);
         change.setDate(chosenStart);
-        change.setValue(request.initialUnitValue());
+        change.setValue(initialUnitValue);
         betUnitValueChangeRepository.save(change);
 
         return toSummary(month, houses);
+    }
+
+    /**
+     * IDs dos meses abertos cujo mês de calendário já passou (usado pelo job de virada automática,
+     * BetMonthRolloverScheduler) - só mês REALMENTE passado (YearMonth antes do de hoje). Um mês
+     * aberto que já é o mês atual, ou que foi criado ADIANTADO pro futuro (fluxo manual já permite
+     * isso), não entra na lista.
+     */
+    @Transactional(readOnly = true)
+    public List<UUID> findExpiredOpenMonthIds() {
+        YearMonth todayYm = YearMonth.from(LocalDate.now());
+        return betMonthRepository.findByEndDateIsNull().stream()
+                .filter(m -> YearMonth.from(m.getStartDate()).isBefore(todayYm))
+                .map(BetMonth::getId)
+                .toList();
+    }
+
+    /**
+     * Vira UM mês (chamado pelo scheduler por fora do bean, um id de cada vez - cada chamada é sua
+     * própria transação, então o mês travado de uma pessoa não derruba a virada de todo mundo).
+     * Pedido explícito do usuário: "é melhor ser por job", pra quem esquecer de clicar em "Iniciar
+     * novo mês". Mantém o mesmo valor de unidade que já estava vigente - virada automática não deve
+     * resetar pra nenhum default, só continuar de onde parou. currentBalance() dentro de
+     * startMonthForUser é resolvido na hora que esse método roda, então não importa a que horas o
+     * job dispara - sempre pega o último saldo real que a pessoa registrou, nunca um valor
+     * "congelado" de antemão.
+     */
+    @Transactional
+    public void rolloverMonth(UUID openMonthId) {
+        BetMonth open = betMonthRepository.findById(openMonthId)
+                .orElseThrow(() -> new AppException("Mês não encontrado.", HttpStatus.NOT_FOUND));
+        LocalDate today = LocalDate.now();
+        BigDecimal currentUnitValue = resolveUnitValue(open, today);
+        startMonthForUser(open.getUser().getId(), today.getYear(), today.getMonthValue(), currentUnitValue);
     }
 
     public void updateUnitValue(UpdateUnitValueRequest request) {
