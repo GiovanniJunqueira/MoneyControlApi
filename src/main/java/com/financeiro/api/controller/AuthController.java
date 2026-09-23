@@ -35,12 +35,17 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<UserResponse> me() {
         User user = userRepository.findById(CurrentUser.id()).orElseThrow();
-        return ResponseEntity.ok(new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt(), user.isBetsEnabled()));
+        return ResponseEntity.ok(new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt(), user.isBetsEnabled(), user.getWhatsappPhone()));
     }
 
     @PutMapping("/settings")
     public UserResponse updateSettings(@Valid @RequestBody UpdateSettingsRequest request) {
         return authService.updateSettings(request);
+    }
+
+    @PutMapping("/whatsapp")
+    public UserResponse updateWhatsAppPhone(@Valid @RequestBody WhatsAppSettingsRequest request) {
+        return authService.updateWhatsAppPhone(request);
     }
 
     @PostMapping("/forgot-password")

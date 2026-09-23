@@ -11,4 +11,8 @@ public interface TabRepository extends JpaRepository<Tab, UUID> {
     List<Tab> findByUserIdOrderByNameAsc(UUID userId);
     Optional<Tab> findByIdAndUserId(UUID id, UUID userId);
     Optional<Tab> findByUserIdAndName(UUID userId, String name);
+
+    /** A aba mais antiga do usuário ("Geral", criada no registro) - usada como destino padrão dos
+     * gastos lançados pelo bot do WhatsApp, que não tem como perguntar "qual aba" sem complicar o fluxo. */
+    Optional<Tab> findFirstByUserIdOrderByCreatedAtAsc(UUID userId);
 }

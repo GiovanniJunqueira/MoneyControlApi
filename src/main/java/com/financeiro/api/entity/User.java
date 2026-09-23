@@ -39,4 +39,9 @@ public class User {
 
     @Column(name = "reset_token_expires_at")
     private LocalDateTime resetTokenExpiresAt;
+
+    /** Número (só dígitos, com DDI) que liga essa conta ao bot do WhatsApp - cadastrado pela própria
+     * pessoa em Configurações, null = bot desligado pra ela. */
+    @Column(name = "whatsapp_phone")
+    private String whatsappPhone;
 }

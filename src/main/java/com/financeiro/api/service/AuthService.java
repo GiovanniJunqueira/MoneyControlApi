@@ -114,7 +114,32 @@ public class AuthService {
         return toResponse(user);
     }
 
+    /** Liga (ou desliga, se phone vier vazio) o número que o bot do WhatsApp usa pra reconhecer essa
+     * conta - normaliza pra só dígitos (com DDI) porque é assim que o WhatsApp manda o remetente no
+     * webhook, e a pessoa pode ter digitado com "+", espaço ou traço. */
+    public UserResponse updateWhatsAppPhone(WhatsAppSettingsRequest request) {
+        User user = userRepository.findById(CurrentUser.id()).orElseThrow();
+        String normalized = normalizePhone(request.phone());
+
+        if (normalized == null) {
+            user.setWhatsappPhone(null);
+        } else {
+            userRepository.findByWhatsappPhone(normalized).filter(u -> !u.getId().equals(user.getId()))
+                    .ifPresent(u -> { throw new AppException("Esse número já está vinculado a outra conta.", HttpStatus.CONFLICT); });
+            user.setWhatsappPhone(normalized);
+        }
+        userRepository.save(user);
+        return toResponse(user);
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null) return null;
+        String digits = phone.replaceAll("[^0-9]", "");
+        return digits.isBlank() ? null : digits;
+    }
+
     private UserResponse toResponse(User user) {
-        return new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt(), user.isBetsEnabled());
+        return new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt(), user.isBetsEnabled(),
+                user.getWhatsappPhone());
     }
 }
