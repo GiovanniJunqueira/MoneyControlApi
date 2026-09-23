@@ -219,7 +219,13 @@ public class BetService {
         if (!fullyPast) {
             betMonthRepository.findByUserIdAndEndDateIsNull(userId).ifPresent(open -> {
                 open.setEndDate(today);
-                betMonthRepository.save(open);
+                // flush já aqui (não só save) - sem isso, o Hibernate agrupa todos os INSERTs
+                // pendentes (o mês novo, os snapshots, a mudança de unidade) ANTES desse UPDATE no
+                // flush automático disparado pelas queries de computeMonthDays() lá no fim do método,
+                // então por um instante as duas linhas ficam com end_date NULL ao mesmo tempo e
+                // violam o índice único parcial (um só mês aberto por usuário) - 500 sempre que já
+                // existia um mês aberto pra fechar.
+                betMonthRepository.saveAndFlush(open);
             });
         }
 
