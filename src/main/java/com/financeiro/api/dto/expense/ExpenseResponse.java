@@ -12,6 +12,10 @@ public record ExpenseResponse(
         String description,
         LocalDate date,
         CategoryResponse category,
-        UUID recurringGroupId
+        UUID recurringGroupId,
+        /** Preenchidos quando esse gasto foi dividido com alguém - null nos três quando não foi. */
+        UUID splitDebtorId,
+        String splitDebtorName,
+        BigDecimal splitAmount
 ) {
 }

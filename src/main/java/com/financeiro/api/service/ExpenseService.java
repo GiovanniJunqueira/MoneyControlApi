@@ -6,12 +6,16 @@ import com.financeiro.api.dto.expense.ExpenseRequest;
 import com.financeiro.api.dto.expense.ExpenseResponse;
 import com.financeiro.api.dto.expense.ExpenseUpdateRequest;
 import com.financeiro.api.entity.Category;
+import com.financeiro.api.entity.Debt;
+import com.financeiro.api.entity.Debtor;
 import com.financeiro.api.entity.Expense;
 import com.financeiro.api.entity.ModuleType;
 import com.financeiro.api.entity.Tab;
 import com.financeiro.api.entity.User;
 import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.CategoryRepository;
+import com.financeiro.api.repository.DebtRepository;
+import com.financeiro.api.repository.DebtorRepository;
 import com.financeiro.api.repository.ExpenseRepository;
 import com.financeiro.api.repository.TabRepository;
 import com.financeiro.api.repository.UserRepository;
@@ -22,8 +26,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -39,15 +46,20 @@ public class ExpenseService {
     private final UserRepository userRepository;
     private final TabRepository tabRepository;
     private final ModuleSettingsService moduleSettingsService;
+    private final DebtorRepository debtorRepository;
+    private final DebtRepository debtRepository;
 
     public ExpenseService(ExpenseRepository expenseRepository, CategoryRepository categoryRepository,
                            UserRepository userRepository, TabRepository tabRepository,
-                           ModuleSettingsService moduleSettingsService) {
+                           ModuleSettingsService moduleSettingsService, DebtorRepository debtorRepository,
+                           DebtRepository debtRepository) {
         this.expenseRepository = expenseRepository;
         this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
         this.tabRepository = tabRepository;
         this.moduleSettingsService = moduleSettingsService;
+        this.debtorRepository = debtorRepository;
+        this.debtRepository = debtRepository;
     }
 
     @Transactional(readOnly = true)
@@ -56,11 +68,24 @@ public class ExpenseService {
         int closingDay = moduleSettingsService.getClosingDay(tab.getId(), ModuleType.GASTOS);
         FiscalPeriod period = resolvePeriod(periodParam, closingDay);
 
-        var expenses = expenseRepository
-                .findByTabIdAndDateBetweenOrderByDateDesc(tab.getId(), period.start(), period.end())
-                .stream().map(this::toResponse).toList();
+        List<Expense> expenses = expenseRepository
+                .findByTabIdAndDateBetweenOrderByDateDesc(tab.getId(), period.start(), period.end());
+        Map<UUID, Debt> splitDebtByExpenseId = splitDebtsByExpenseId(expenses);
 
-        return new ExpenseListResponse(period, expenses);
+        var responses = expenses.stream().map(e -> toResponse(e, splitDebtByExpenseId.get(e.getId()))).toList();
+        return new ExpenseListResponse(period, responses);
+    }
+
+    /** Uma consulta em lote pra achar a dívida de divisão (se tiver) de cada gasto de uma lista,
+     * evita N+1 - ver Debt.sourceExpense. */
+    private Map<UUID, Debt> splitDebtsByExpenseId(List<Expense> expenses) {
+        List<UUID> ids = expenses.stream().map(Expense::getId).toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<UUID, Debt> result = new HashMap<>();
+        for (Debt d : debtRepository.findBySourceExpenseIdIn(ids)) {
+            result.put(d.getSourceExpense().getId(), d);
+        }
+        return result;
     }
 
     @Transactional
@@ -71,10 +96,13 @@ public class ExpenseService {
 
         User user = userRepository.getReferenceById(CurrentUser.id());
 
+        Debtor splitDebtor = resolveSplitDebtor(tab, request.splitDebtorId(), request.splitAmount());
+
         int months = resolveOccurrenceCount(request.recurrence(), request.recurrenceMonths());
         UUID recurringGroupId = months > 1 ? UUID.randomUUID() : null;
 
         Expense first = null;
+        Debt firstSplitDebt = null;
         for (int i = 0; i < months; i++) {
             Expense expense = new Expense();
             expense.setUser(user);
@@ -85,10 +113,41 @@ public class ExpenseService {
             expense.setDate(request.date().plusMonths(i));
             expense.setRecurringGroupId(recurringGroupId);
             expenseRepository.save(expense);
-            if (i == 0) first = expense;
+
+            Debt splitDebt = null;
+            if (splitDebtor != null) {
+                splitDebt = new Debt();
+                splitDebt.setUser(user);
+                splitDebt.setTab(tab);
+                splitDebt.setDebtor(splitDebtor);
+                splitDebt.setAmount(request.splitAmount());
+                splitDebt.setReason("Divisão: " + (request.description() != null && !request.description().isBlank()
+                        ? request.description() : category.getName()));
+                splitDebt.setDate(expense.getDate());
+                splitDebt.setSourceExpense(expense);
+                debtRepository.save(splitDebt);
+            }
+
+            if (i == 0) {
+                first = expense;
+                firstSplitDebt = splitDebt;
+            }
         }
 
-        return toResponse(first);
+        return toResponse(first, firstSplitDebt);
+    }
+
+    /** Valida a divisão do gasto (os dois campos precisam vir juntos, ou nenhum) e confirma que a
+     * pessoa escolhida é da mesma aba do gasto - null se não tiver divisão nenhuma. */
+    private Debtor resolveSplitDebtor(Tab tab, UUID splitDebtorId, BigDecimal splitAmount) {
+        if (splitDebtorId == null && splitAmount == null) {
+            return null;
+        }
+        if (splitDebtorId == null || splitAmount == null) {
+            throw new AppException("Pra dividir o gasto, informe a pessoa e o valor dela.", HttpStatus.BAD_REQUEST);
+        }
+        return debtorRepository.findByIdAndTabId(splitDebtorId, tab.getId())
+                .orElseThrow(() -> new AppException("Pessoa não encontrada nessa aba.", HttpStatus.NOT_FOUND));
     }
 
     /** null/"NONE" = 1 ocorrência avulsa. "FIXED" = recurrenceMonths ocorrências. "INDEFINITE" = um
@@ -137,7 +196,9 @@ public class ExpenseService {
             expenseRepository.save(expense);
         }
 
-        return toResponse(expense);
+        // divisão (se tiver) não é editada por aqui - ver javadoc de toResponse().
+        Debt splitDebt = debtRepository.findBySourceExpenseIdIn(List.of(expense.getId())).stream().findFirst().orElse(null);
+        return toResponse(expense, splitDebt);
     }
 
     @Transactional
@@ -173,12 +234,18 @@ public class ExpenseService {
         return FiscalPeriodCalculator.getFiscalPeriod(reference, closingDay);
     }
 
-    private ExpenseResponse toResponse(Expense e) {
+    /** splitDebt = a dívida gerada por "dividir com alguém" nesse gasto, se tiver (ver
+     * Debt.sourceExpense) - null quando o gasto não foi dividido. Editar um gasto (update()) não
+     * mexe na divisão - só mostra o que já existe, criada junto no create(). */
+    private ExpenseResponse toResponse(Expense e, Debt splitDebt) {
         Category c = e.getCategory();
         return new ExpenseResponse(
                 e.getId(), e.getAmount(), e.getDescription(), e.getDate(),
-                new CategoryResponse(c.getId(), c.getName(), c.getColor(), c.getIcon()),
-                e.getRecurringGroupId()
+                new CategoryResponse(c.getId(), c.getName(), c.getColor(), c.getIcon(), c.getMonthlyBudget()),
+                e.getRecurringGroupId(),
+                splitDebt != null ? splitDebt.getDebtor().getId() : null,
+                splitDebt != null ? splitDebt.getDebtor().getName() : null,
+                splitDebt != null ? splitDebt.getAmount() : null
         );
     }
 }

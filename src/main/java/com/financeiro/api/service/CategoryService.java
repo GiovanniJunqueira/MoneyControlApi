@@ -51,6 +51,7 @@ public class CategoryService {
         category.setName(request.name());
         category.setColor(request.color());
         category.setIcon(request.icon());
+        category.setMonthlyBudget(request.monthlyBudget());
         categoryRepository.save(category);
 
         return toResponse(category);
@@ -61,6 +62,7 @@ public class CategoryService {
         category.setName(request.name());
         category.setColor(request.color());
         category.setIcon(request.icon());
+        category.setMonthlyBudget(request.monthlyBudget());
         categoryRepository.save(category);
         return toResponse(category);
     }
@@ -84,6 +86,6 @@ public class CategoryService {
     }
 
     private CategoryResponse toResponse(Category c) {
-        return new CategoryResponse(c.getId(), c.getName(), c.getColor(), c.getIcon());
+        return new CategoryResponse(c.getId(), c.getName(), c.getColor(), c.getIcon(), c.getMonthlyBudget());
     }
 }

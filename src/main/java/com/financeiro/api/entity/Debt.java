@@ -54,6 +54,13 @@ public class Debt {
     private Integer installmentNumber;
     private Integer installmentTotal;
 
+    /** Gasto que originou essa dívida, quando ela veio de "dividir com alguém" no lançamento de um
+     * gasto - null = dívida cadastrada diretamente em Devedores, sem relação com nenhum gasto.
+     * ON DELETE CASCADE no banco - excluir o gasto de origem também exclui essa dívida. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_expense_id")
+    private Expense sourceExpense;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

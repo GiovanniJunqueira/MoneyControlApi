@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
@@ -32,4 +33,8 @@ public class Category {
     private String color;
 
     private String icon;
+
+    /** Limite de gasto mensal opcional - null = sem orçamento definido pra essa categoria. */
+    @Column(name = "monthly_budget", precision = 12, scale = 2)
+    private BigDecimal monthlyBudget;
 }

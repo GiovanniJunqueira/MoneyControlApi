@@ -109,6 +109,11 @@ public class DashboardService {
                 CategoriaAcc acc = categoriaPorNome.computeIfAbsent(c.nome(), k -> new CategoriaAcc(c.categoryId(), c.nome(), c.cor()));
                 acc.total = acc.total.add(c.total());
                 acc.quantidade += c.quantidade();
+                // soma o orçamento das categorias de mesmo nome entre abas diferentes (mesmo critério
+                // já usado pro gasto) - null (sem orçamento) conta como zero na soma.
+                if (c.orcamento() != null) {
+                    acc.orcamento = acc.orcamento.add(c.orcamento());
+                }
             }
             for (PessoaResumo p : d.porPessoa()) {
                 PessoaAcc acc = pessoaPorNome.computeIfAbsent(p.nome(), k -> new PessoaAcc(p.debtorId(), p.nome()));
@@ -129,7 +134,11 @@ public class DashboardService {
             double percentual = totalGastoGeral.compareTo(BigDecimal.ZERO) > 0
                     ? acc.total.divide(totalGastoGeral, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP).doubleValue()
                     : 0.0;
-            porCategoria.add(new CategoriaResumo(acc.categoryId, acc.nome, acc.cor, acc.total, acc.quantidade, percentual));
+            BigDecimal orcamento = acc.orcamento.compareTo(BigDecimal.ZERO) > 0 ? acc.orcamento : null;
+            Double percentualOrcamento = orcamento != null
+                    ? acc.total.divide(orcamento, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP).doubleValue()
+                    : null;
+            porCategoria.add(new CategoriaResumo(acc.categoryId, acc.nome, acc.cor, acc.total, acc.quantidade, percentual, orcamento, percentualOrcamento));
         }
         porCategoria.sort((a, b) -> b.total().compareTo(a.total()));
 
@@ -164,6 +173,9 @@ public class DashboardService {
             CategoriaAcc acc = porCategoriaMap.computeIfAbsent(catId, k -> new CategoriaAcc(catId, e.getCategory().getName(), e.getCategory().getColor()));
             acc.total = acc.total.add(e.getAmount());
             acc.quantidade += 1;
+            if (e.getCategory().getMonthlyBudget() != null) {
+                acc.orcamento = e.getCategory().getMonthlyBudget();
+            }
         }
 
         List<CategoriaResumo> porCategoria = new ArrayList<>();
@@ -172,7 +184,11 @@ public class DashboardService {
             double percentual = total.compareTo(BigDecimal.ZERO) > 0
                     ? acc.total.divide(total, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP).doubleValue()
                     : 0.0;
-            porCategoria.add(new CategoriaResumo(entry.getKey(), acc.nome, acc.cor, acc.total, acc.quantidade, percentual));
+            BigDecimal orcamento = acc.orcamento.compareTo(BigDecimal.ZERO) > 0 ? acc.orcamento : null;
+            Double percentualOrcamento = orcamento != null
+                    ? acc.total.divide(orcamento, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP).doubleValue()
+                    : null;
+            porCategoria.add(new CategoriaResumo(entry.getKey(), acc.nome, acc.cor, acc.total, acc.quantidade, percentual, orcamento, percentualOrcamento));
         }
         porCategoria.sort((a, b) -> b.total().compareTo(a.total()));
 
@@ -181,11 +197,24 @@ public class DashboardService {
 
         GastosResumo resumo = new GastosResumo(total, expenses.size(), media);
 
-        List<ExpenseResponse> lancamentos = expenses.stream().map(e -> new ExpenseResponse(
-                e.getId(), e.getAmount(), e.getDescription(), e.getDate(),
-                new CategoryResponse(e.getCategory().getId(), e.getCategory().getName(), e.getCategory().getColor(), e.getCategory().getIcon()),
-                e.getRecurringGroupId()
-        )).toList();
+        Map<UUID, Debt> splitDebtByExpenseId = new HashMap<>();
+        if (!expenses.isEmpty()) {
+            for (Debt d : debtRepository.findBySourceExpenseIdIn(expenses.stream().map(Expense::getId).toList())) {
+                splitDebtByExpenseId.put(d.getSourceExpense().getId(), d);
+            }
+        }
+        List<ExpenseResponse> lancamentos = expenses.stream().map(e -> {
+            Debt splitDebt = splitDebtByExpenseId.get(e.getId());
+            return new ExpenseResponse(
+                    e.getId(), e.getAmount(), e.getDescription(), e.getDate(),
+                    new CategoryResponse(e.getCategory().getId(), e.getCategory().getName(), e.getCategory().getColor(),
+                            e.getCategory().getIcon(), e.getCategory().getMonthlyBudget()),
+                    e.getRecurringGroupId(),
+                    splitDebt != null ? splitDebt.getDebtor().getId() : null,
+                    splitDebt != null ? splitDebt.getDebtor().getName() : null,
+                    splitDebt != null ? splitDebt.getAmount() : null
+            );
+        }).toList();
 
         return new GastosDashboardResponse(period, resumo, porCategoria, lancamentos);
     }
@@ -233,6 +262,9 @@ public class DashboardService {
         String cor;
         BigDecimal total = BigDecimal.ZERO;
         long quantidade = 0;
+        /** Continua ZERO se nenhuma categoria de mesmo nome (entre abas) tiver orçamento definido -
+         * vira null na resposta final nesse caso (ver porCategoria acima). */
+        BigDecimal orcamento = BigDecimal.ZERO;
 
         CategoriaAcc(UUID categoryId, String nome, String cor) {
             this.categoryId = categoryId;
