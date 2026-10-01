@@ -6,32 +6,30 @@ import java.time.YearMonth;
 /**
  * Lógica do "período fiscal" customizável.
  * <p>
- * Em vez de usar o mês de calendário, cada módulo tem um {@code closingDay}
- * (dia de fechamento, ex: 25). O período vai do dia (closingDay + 1) de um
- * mês até o closingDay do mês seguinte.
+ * Em vez de usar o mês de calendário, cada módulo tem um {@code closingDay} (dia de fechamento,
+ * ex: 25). <b>O dia do fechamento é o PRIMEIRO dia do período novo</b>, não o último dia do
+ * período antigo - pedido explícito do usuário: "dia 1 fecha, dia 1 já conta pro próximo, não pra
+ * fatura anterior" (ele lançou uma dívida exatamente no dia do fechamento e ela precisava cair no
+ * ciclo que estava começando, não no que estava terminando). O período vai do dia
+ * {@code closingDay} de um mês até o dia ({@code closingDay} − 1) do mês seguinte.
  * <p>
  * Exemplo com closingDay = 25:
- * - Um lançamento em 10/08 pertence ao período que fecha em 25/08 (início 26/07, fim 25/08).
- * - Um lançamento em 26/08 já pertence ao próximo período (início 26/08, fim 25/09).
+ * - Um lançamento em 10/08 pertence ao período [25/07, 24/08] (fecha de novo em 25/08, quando o
+ *   próximo período já começa).
+ * - Um lançamento em 25/08 já pertence ao próximo período [25/08, 24/09].
  * <p>
- * <b>Qual "mês" (key) um período leva o nome</b> - bug real relatado pelo usuário: com um
- * {@code closingDay} baixo (ex: 4, fechamento "dia 4 ao dia 5"), nomear o período sempre pelo mês
- * em que ele TERMINA (como no exemplo acima, pensado pra closingDay alto tipo 25) produz um
- * resultado contra-intuitivo - o período [05/set, 04/out] (29 dias em setembro, só 1 em outubro)
- * ficaria rotulado "Outubro". Uma dívida lançada em 24/set não aparecia ao navegar pra "Setembro",
- * porque "Setembro" (pelo critério antigo) significava o período [05/ago, 04/set]. Isso também já
- * afetava TODO mundo com o closingDay padrão (1, usado por toda aba nova que ninguém configurou):
- * o período corrente, a maior parte dos dias do mês, já saía rotulado com o mês SEGUINTE.
+ * Caso especial importante: {@code closingDay = 1} (o padrão de toda aba nova que ninguém
+ * configurou) faz o período virar EXATAMENTE o mês de calendário ([1, último dia do mês]) - é o
+ * comportamento mais intuitivo possível pra quem nunca mexeu nessa configuração.
  * <p>
- * Correção: o período leva o nome do mês em que a MAIORIA dos seus dias cai. Como isso teria que
- * ser recalculado dia a dia (meses têm 28-31 dias, o "meio do período" varia um pouco), usamos um
- * limiar fixo e simples em vez de contar dias exatos - resultado idêntico pra qualquer closingDay
- * fora da faixa 13-17, e a decisão certa pros dois casos reais que já apareceram (25 → termina;
- * 1 e 4 → começa): {@code closingDay < 15} → nomeado pelo mês em que COMEÇA; {@code closingDay >=
- * 15} → nomeado pelo mês em que TERMINA (comportamento original, preservado pro exemplo acima).
- * Como nenhuma "key" de período é persistida em lugar nenhum (só a {@code date} de cada
- * gasto/dívida, recalculado sempre on-the-fly) - mudar esse critério não tem nenhum risco de
- * migração ou dado desatualizado, só muda o que aparece na tela ao navegar.
+ * <b>Qual "mês" (key) um período leva o nome</b>: nomeado pelo mês onde cai a MAIORIA dos seus
+ * dias - um limiar fixo e simples (closingDay < 15 → nomeado pelo mês em que COMEÇA; closingDay
+ * >= 15 → nomeado pelo mês em que TERMINA) resolve isso sem precisar contar dias exatos (que
+ * variam um pouco, meses têm 28-31 dias). Pra closingDay=1 isso não importa (o período já é
+ * exatamente um mês de calendário, só tem um mês possível pra nomear). Como nenhuma "key" de
+ * período é persistida em lugar nenhum (só a {@code date} de cada gasto/dívida, recalculado
+ * sempre on-the-fly) - mudar esse critério não tem nenhum risco de migração ou dado desatualizado,
+ * só muda o que aparece na tela ao navegar.
  */
 public class FiscalPeriodCalculator {
 
@@ -45,6 +43,13 @@ public class FiscalPeriodCalculator {
         return Math.min(day, lastDay);
     }
 
+    private static int[] addMonths(int year, int month, int delta) {
+        int total = (year * 12 + (month - 1)) + delta;
+        int newYear = Math.floorDiv(total, 12);
+        int newMonth = Math.floorMod(total, 12) + 1;
+        return new int[]{newYear, newMonth};
+    }
+
     public static FiscalPeriod getFiscalPeriod(LocalDate referenceDate, int closingDay) {
         int year = referenceDate.getYear();
         int month = referenceDate.getMonthValue();
@@ -52,33 +57,29 @@ public class FiscalPeriodCalculator {
 
         int thisMonthClosing = clampDay(year, month, closingDay);
 
-        int periodEndYear = year;
-        int periodEndMonth = month;
-
-        if (day > thisMonthClosing) {
-            periodEndMonth += 1;
-            if (periodEndMonth > 12) {
-                periodEndMonth = 1;
-                periodEndYear += 1;
-            }
+        // dia >= fechamento deste mês → o período COMEÇA neste mês (o fechamento já é o primeiro
+        // dia do novo ciclo). Senão, o período começou no mês anterior.
+        int startYear = year;
+        int startMonth = month;
+        if (day < thisMonthClosing) {
+            int[] prev = addMonths(year, month, -1);
+            startYear = prev[0];
+            startMonth = prev[1];
         }
 
-        int periodEndDay = clampDay(periodEndYear, periodEndMonth, closingDay);
-        LocalDate end = LocalDate.of(periodEndYear, periodEndMonth, periodEndDay);
+        int startDay = clampDay(startYear, startMonth, closingDay);
+        LocalDate start = LocalDate.of(startYear, startMonth, startDay);
 
-        int startMonth = periodEndMonth - 1;
-        int startYear = periodEndYear;
-        if (startMonth < 1) {
-            startMonth = 12;
-            startYear -= 1;
-        }
-        int startClosingDay = clampDay(startYear, startMonth, closingDay);
-        LocalDate start = LocalDate.of(startYear, startMonth, startClosingDay).plusDays(1);
+        int[] next = addMonths(startYear, startMonth, 1);
+        int endYear = next[0];
+        int endMonth = next[1];
+        int endClosingDay = clampDay(endYear, endMonth, closingDay);
+        LocalDate end = LocalDate.of(endYear, endMonth, endClosingDay).minusDays(1);
 
         // ver javadoc da classe - nomeia pelo mês onde cai a maioria dos dias do período.
         String key = closingDay < LABEL_BY_START_MONTH_THRESHOLD
                 ? String.format("%d-%02d", startYear, startMonth)
-                : String.format("%d-%02d", periodEndYear, periodEndMonth);
+                : String.format("%d-%02d", endYear, endMonth);
 
         return new FiscalPeriod(key, start, end, thisMonthClosing);
     }
@@ -89,15 +90,20 @@ public class FiscalPeriodCalculator {
 
     /**
      * Resolve o período cuja "key" (formato "YYYY-MM") é a informada - usado quando a pessoa navega
-     * pra um mês específico (setas, seletor de mês). Tem que escolher o MESMO critério de rotulagem
-     * usado em getFiscalPeriod() pra ida e volta serem consistentes: se o período é nomeado pelo mês
-     * em que começa (closingDay baixo), a data de referência tem que cair logo no INÍCIO do período
-     * desejado (closingDay + 1); se é nomeado pelo mês em que termina (closingDay alto, comportamento
-     * original), a referência é o próprio closingDay, que já cai exatamente no fim do período.
+     * pra um mês específico (setas, seletor de mês). Tem que usar o MESMO critério de rotulagem de
+     * getFiscalPeriod() pra ida e volta serem consistentes: se o período é nomeado pelo mês em que
+     * começa (closingDay baixo), uma referência dentro do próprio mês pedido (no dia do fechamento)
+     * já cai certinho; se é nomeado pelo mês em que termina (closingDay alto), a referência precisa
+     * ser um dia do mês ANTERIOR (onde o período realmente começa) - o último dia do mês anterior
+     * sempre serve, já que closingDay nunca passa de 28.
      */
     public static FiscalPeriod getFiscalPeriodForKey(int year, int month, int closingDay) {
-        int referenceDay = closingDay < LABEL_BY_START_MONTH_THRESHOLD ? closingDay + 1 : closingDay;
-        LocalDate reference = LocalDate.of(year, month, clampDay(year, month, referenceDay));
+        LocalDate reference;
+        if (closingDay < LABEL_BY_START_MONTH_THRESHOLD) {
+            reference = LocalDate.of(year, month, clampDay(year, month, closingDay));
+        } else {
+            reference = LocalDate.of(year, month, 1).minusDays(1);
+        }
         return getFiscalPeriod(reference, closingDay);
     }
 }
