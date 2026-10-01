@@ -27,7 +27,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -230,8 +229,7 @@ public class ExpenseService {
         String[] parts = periodParam.split("-");
         int year = Integer.parseInt(parts[0]);
         int month = Integer.parseInt(parts[1]);
-        LocalDate reference = LocalDate.of(year, month, Math.min(closingDay, 28));
-        return FiscalPeriodCalculator.getFiscalPeriod(reference, closingDay);
+        return FiscalPeriodCalculator.getFiscalPeriodForKey(year, month, closingDay);
     }
 
     /** splitDebt = a dívida gerada por "dividir com alguém" nesse gasto, se tiver (ver
