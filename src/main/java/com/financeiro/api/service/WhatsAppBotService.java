@@ -160,7 +160,7 @@ public class WhatsAppBotService {
     }
 
     private void createExpense(UUID tabId, UUID categoryId, BigDecimal amount, String description, LocalDate date) {
-        expenseService.create(tabId, new ExpenseRequest(categoryId, amount, description, date, null, null, null, null));
+        expenseService.create(tabId, new ExpenseRequest(categoryId, amount, description, date, null, null, null, null, null));
     }
 
     private String categoryList(List<Category> categories) {

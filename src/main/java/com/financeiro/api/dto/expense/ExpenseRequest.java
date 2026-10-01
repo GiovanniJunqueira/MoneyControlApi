@@ -18,6 +18,10 @@ public record ExpenseRequest(
         String recurrence,
         /** Obrigatório quando recurrence = "FIXED". */
         Integer recurrenceMonths,
+        /** null/1 = gasto avulso (comportamento de sempre). > 1 = divide `amount` (o valor TOTAL)
+         * em `installments` parcelas mensais a partir de `date` - mutuamente exclusivo com
+         * `recurrence` (um gasto não é recorrente E parcelado ao mesmo tempo). */
+        Integer installments,
         /** Divide esse gasto com uma pessoa já cadastrada em Devedores - opcional. Quando presente,
          * cria automaticamente uma dívida pra essa pessoa no valor de splitAmount, ligada a esse
          * gasto. Os dois campos andam juntos: ou os dois vêm preenchidos, ou nenhum. */

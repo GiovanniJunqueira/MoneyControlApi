@@ -210,6 +210,7 @@ public class DashboardService {
                     new CategoryResponse(e.getCategory().getId(), e.getCategory().getName(), e.getCategory().getColor(),
                             e.getCategory().getIcon(), e.getCategory().getMonthlyBudget()),
                     e.getRecurringGroupId(),
+                    e.getInstallmentGroupId(), e.getInstallmentNumber(), e.getInstallmentTotal(),
                     splitDebt != null ? splitDebt.getDebtor().getId() : null,
                     splitDebt != null ? splitDebt.getDebtor().getName() : null,
                     splitDebt != null ? splitDebt.getAmount() : null

@@ -15,5 +15,7 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
 
     List<Expense> findByRecurringGroupIdAndDateGreaterThanEqual(UUID recurringGroupId, LocalDate date);
 
+    List<Expense> findByInstallmentGroupIdAndDateGreaterThanEqual(UUID installmentGroupId, LocalDate date);
+
     long countByCategoryId(UUID categoryId);
 }

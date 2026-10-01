@@ -41,8 +41,16 @@ public class Expense {
     @Column(nullable = false)
     private LocalDate date;
 
-    /** Liga as várias ocorrências de um gasto recorrente entre si - null = gasto avulso. */
+    /** Liga as várias ocorrências de um gasto recorrente entre si - null = gasto avulso. Mesmo
+     * valor repetido todo mês - diferente de parcelamento (abaixo), que DIVIDE um valor total. Um
+     * gasto nunca é as duas coisas ao mesmo tempo. */
     private UUID recurringGroupId;
+
+    /** Liga as parcelas de um gasto parcelado entre si - null = gasto não parcelado. Mesmo padrão
+     * de Debt.installmentGroupId. */
+    private UUID installmentGroupId;
+    private Integer installmentNumber;
+    private Integer installmentTotal;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

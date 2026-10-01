@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,20 +98,50 @@ public class ExpenseService {
 
         Debtor splitDebtor = resolveSplitDebtor(tab, request.splitDebtorId(), request.splitAmount());
 
-        int months = resolveOccurrenceCount(request.recurrence(), request.recurrenceMonths());
-        UUID recurringGroupId = months > 1 ? UUID.randomUUID() : null;
+        boolean hasRecurrence = request.recurrence() != null && !request.recurrence().isBlank()
+                && !"NONE".equalsIgnoreCase(request.recurrence());
+        boolean hasInstallments = request.installments() != null && request.installments() > 1;
+        if (hasRecurrence && hasInstallments) {
+            throw new AppException("Um gasto não pode ser recorrente e parcelado ao mesmo tempo.", HttpStatus.BAD_REQUEST);
+        }
+        if (hasInstallments && request.installments() > 360) {
+            throw new AppException("Máximo de 360 parcelas.", HttpStatus.BAD_REQUEST);
+        }
+
+        int occurrences = hasInstallments ? request.installments() : resolveOccurrenceCount(request.recurrence(), request.recurrenceMonths());
+        UUID recurringGroupId = !hasInstallments && occurrences > 1 ? UUID.randomUUID() : null;
+        UUID installmentGroupId = hasInstallments ? UUID.randomUUID() : null;
+
+        // parcelamento divide o valor TOTAL em N parcelas que somam exatamente o pedido - a diferença
+        // de arredondamento (quando não divide igual) fica toda na última parcela. Recorrência é
+        // diferente: repete o MESMO valor em todas as ocorrências (mesmo padrão de Debt - ver DebtService).
+        BigDecimal installmentAmount = hasInstallments
+                ? request.amount().divide(BigDecimal.valueOf(occurrences), 2, RoundingMode.DOWN)
+                : request.amount();
+        BigDecimal accumulated = BigDecimal.ZERO;
 
         Expense first = null;
         Debt firstSplitDebt = null;
-        for (int i = 0; i < months; i++) {
+        for (int i = 0; i < occurrences; i++) {
+            BigDecimal amount = request.amount();
+            if (hasInstallments) {
+                amount = (i == occurrences - 1) ? request.amount().subtract(accumulated) : installmentAmount;
+                accumulated = accumulated.add(amount);
+            }
+
             Expense expense = new Expense();
             expense.setUser(user);
             expense.setTab(tab);
             expense.setCategory(category);
-            expense.setAmount(request.amount());
+            expense.setAmount(amount);
             expense.setDescription(request.description());
             expense.setDate(request.date().plusMonths(i));
             expense.setRecurringGroupId(recurringGroupId);
+            if (installmentGroupId != null) {
+                expense.setInstallmentGroupId(installmentGroupId);
+                expense.setInstallmentNumber(i + 1);
+                expense.setInstallmentTotal(occurrences);
+            }
             expenseRepository.save(expense);
 
             Debt splitDebt = null;
@@ -177,14 +208,19 @@ public class ExpenseService {
         Category category = categoryRepository.findByIdAndTabId(request.categoryId(), expense.getTab().getId())
                 .orElseThrow(() -> new AppException("Categoria não encontrada.", HttpStatus.NOT_FOUND));
 
-        if (request.applyToFuture() && expense.getRecurringGroupId() != null) {
-            List<Expense> occurrences = expenseRepository
-                    .findByRecurringGroupIdAndDateGreaterThanEqual(expense.getRecurringGroupId(), expense.getDate());
+        boolean isGroup = expense.getRecurringGroupId() != null || expense.getInstallmentGroupId() != null;
+        if (request.applyToFuture() && isGroup) {
+            List<Expense> occurrences = expense.getRecurringGroupId() != null
+                    ? expenseRepository.findByRecurringGroupIdAndDateGreaterThanEqual(expense.getRecurringGroupId(), expense.getDate())
+                    : expenseRepository.findByInstallmentGroupIdAndDateGreaterThanEqual(expense.getInstallmentGroupId(), expense.getDate());
             for (Expense e : occurrences) {
                 e.setCategory(category);
                 e.setAmount(request.amount());
                 e.setDescription(request.description());
-                // a data de cada ocorrência não muda aqui - só a categoria/valor/descrição se repetem.
+                // a data de cada ocorrência/parcela não muda aqui - só categoria/valor/descrição se
+                // repetem (igual Debt.update() - editar uma parcela com "aplicar às futuras" perde a
+                // divisão exata do total, vira o mesmo valor repetido; é a mesma troca que já existia
+                // pra dívida parcelada).
             }
             expenseRepository.saveAll(occurrences);
         } else {
@@ -206,6 +242,9 @@ public class ExpenseService {
         if (applyToFuture && expense.getRecurringGroupId() != null) {
             expenseRepository.deleteAll(
                     expenseRepository.findByRecurringGroupIdAndDateGreaterThanEqual(expense.getRecurringGroupId(), expense.getDate()));
+        } else if (applyToFuture && expense.getInstallmentGroupId() != null) {
+            expenseRepository.deleteAll(
+                    expenseRepository.findByInstallmentGroupIdAndDateGreaterThanEqual(expense.getInstallmentGroupId(), expense.getDate()));
         } else {
             expenseRepository.delete(expense);
         }
@@ -241,6 +280,7 @@ public class ExpenseService {
                 e.getId(), e.getAmount(), e.getDescription(), e.getDate(),
                 new CategoryResponse(c.getId(), c.getName(), c.getColor(), c.getIcon(), c.getMonthlyBudget()),
                 e.getRecurringGroupId(),
+                e.getInstallmentGroupId(), e.getInstallmentNumber(), e.getInstallmentTotal(),
                 splitDebt != null ? splitDebt.getDebtor().getId() : null,
                 splitDebt != null ? splitDebt.getDebtor().getName() : null,
                 splitDebt != null ? splitDebt.getAmount() : null
