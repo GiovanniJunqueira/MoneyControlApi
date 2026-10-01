@@ -97,6 +97,9 @@ public class ExpenseService {
         User user = userRepository.getReferenceById(CurrentUser.id());
 
         Debtor splitDebtor = resolveSplitDebtor(tab, request.splitDebtorId(), request.splitAmount());
+        if (splitDebtor != null && request.splitAmount().compareTo(request.amount()) > 0) {
+            throw new AppException("O valor da divisão não pode ser maior que o valor do gasto.", HttpStatus.BAD_REQUEST);
+        }
 
         boolean hasRecurrence = request.recurrence() != null && !request.recurrence().isBlank()
                 && !"NONE".equalsIgnoreCase(request.recurrence());
@@ -112,20 +115,30 @@ public class ExpenseService {
         UUID recurringGroupId = !hasInstallments && occurrences > 1 ? UUID.randomUUID() : null;
         UUID installmentGroupId = hasInstallments ? UUID.randomUUID() : null;
 
-        // parcelamento divide o valor TOTAL em N parcelas que somam exatamente o pedido - a diferença
-        // de arredondamento (quando não divide igual) fica toda na última parcela. Recorrência é
-        // diferente: repete o MESMO valor em todas as ocorrências (mesmo padrão de Debt - ver DebtService).
-        BigDecimal installmentAmount = hasInstallments
-                ? request.amount().divide(BigDecimal.valueOf(occurrences), 2, RoundingMode.DOWN)
-                : request.amount();
+        // quando o gasto é dividido, o que fica lançado COMO GASTO é só a minha parte (total − valor
+        // da pessoa) - o valor da pessoa vira só a Debt, nunca os dois no valor cheio. Pedido explícito
+        // do usuário, revisando a primeira versão dessa feature (que lançava o total nos dois lados).
+        BigDecimal myTotalAmount = splitDebtor != null ? request.amount().subtract(request.splitAmount()) : request.amount();
+
+        // parcelamento divide o valor TOTAL (de cada lado - minha parte e a da pessoa, cada uma com
+        // sua própria divisão e seu próprio resto de arredondamento) em N parcelas que somam exatamente
+        // o pedido - a diferença de arredondamento fica toda na última parcela. Recorrência é diferente:
+        // repete o MESMO valor em todas as ocorrências (mesmo padrão de Debt - ver DebtService).
+        BigDecimal myInstallmentAmount = hasInstallments
+                ? myTotalAmount.divide(BigDecimal.valueOf(occurrences), 2, RoundingMode.DOWN)
+                : myTotalAmount;
+        BigDecimal debtInstallmentAmount = hasInstallments && splitDebtor != null
+                ? request.splitAmount().divide(BigDecimal.valueOf(occurrences), 2, RoundingMode.DOWN)
+                : request.splitAmount();
         BigDecimal accumulated = BigDecimal.ZERO;
+        BigDecimal debtAccumulated = BigDecimal.ZERO;
 
         Expense first = null;
         Debt firstSplitDebt = null;
         for (int i = 0; i < occurrences; i++) {
-            BigDecimal amount = request.amount();
+            BigDecimal amount = myTotalAmount;
             if (hasInstallments) {
-                amount = (i == occurrences - 1) ? request.amount().subtract(accumulated) : installmentAmount;
+                amount = (i == occurrences - 1) ? myTotalAmount.subtract(accumulated) : myInstallmentAmount;
                 accumulated = accumulated.add(amount);
             }
 
@@ -146,11 +159,16 @@ public class ExpenseService {
 
             Debt splitDebt = null;
             if (splitDebtor != null) {
+                BigDecimal debtAmount = request.splitAmount();
+                if (hasInstallments) {
+                    debtAmount = (i == occurrences - 1) ? request.splitAmount().subtract(debtAccumulated) : debtInstallmentAmount;
+                    debtAccumulated = debtAccumulated.add(debtAmount);
+                }
                 splitDebt = new Debt();
                 splitDebt.setUser(user);
                 splitDebt.setTab(tab);
                 splitDebt.setDebtor(splitDebtor);
-                splitDebt.setAmount(request.splitAmount());
+                splitDebt.setAmount(debtAmount);
                 splitDebt.setReason("Divisão: " + (request.description() != null && !request.description().isBlank()
                         ? request.description() : category.getName()));
                 splitDebt.setDate(expense.getDate());
