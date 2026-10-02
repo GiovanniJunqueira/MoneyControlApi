@@ -12,6 +12,7 @@ public interface DebtRepository extends JpaRepository<Debt, UUID> {
     Optional<Debt> findByIdAndUserId(UUID id, UUID userId);
     List<Debt> findByDebtorId(UUID debtorId);
     List<Debt> findByTabIdAndDateBetween(UUID tabId, LocalDate start, LocalDate end);
+    List<Debt> findByTabId(UUID tabId);
     List<Debt> findByInstallmentGroupIdAndDateGreaterThanEqual(UUID installmentGroupId, LocalDate date);
 
     /** Dívidas geradas por "dividir gasto" - uma consulta em lote pra montar a lista de gastos sem N+1. */

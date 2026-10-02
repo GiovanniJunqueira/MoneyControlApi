@@ -13,6 +13,8 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
 
     List<Expense> findByTabIdAndDateBetweenOrderByDateDesc(UUID tabId, LocalDate start, LocalDate end);
 
+    List<Expense> findByTabIdOrderByDateDesc(UUID tabId);
+
     List<Expense> findByRecurringGroupIdAndDateGreaterThanEqual(UUID recurringGroupId, LocalDate date);
 
     List<Expense> findByInstallmentGroupIdAndDateGreaterThanEqual(UUID installmentGroupId, LocalDate date);

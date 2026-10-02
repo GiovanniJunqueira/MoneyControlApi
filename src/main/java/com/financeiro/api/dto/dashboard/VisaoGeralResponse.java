@@ -4,6 +4,7 @@ import java.util.List;
 
 public record VisaoGeralResponse(
         String periodKey,
+        boolean total,
         List<TabSummary> abas,
         GastosResumo resumoGastos,
         List<CategoriaResumo> porCategoria,

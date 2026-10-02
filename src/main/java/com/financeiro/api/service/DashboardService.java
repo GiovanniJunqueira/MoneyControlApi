@@ -22,10 +22,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.*;
 
 @Service
 public class DashboardService {
+
+    /** Placeholder pro campo `period` dos DTOs por-aba quando a consulta é "ver total" (sem filtro de
+     * data) - só preenche o shape do record; o período de verdade (ou a ausência dele) é exposto pelo
+     * `periodKey`/`total` dos DTOs agregados (VisaoGeralResponse/DevedoresGeralResponse), não por aqui. */
+    private static final FiscalPeriod TOTAL_PERIOD = new FiscalPeriod("total", LocalDate.MIN, LocalDate.MAX, 0);
 
     private final ExpenseRepository expenseRepository;
     private final DebtRepository debtRepository;
@@ -43,23 +49,42 @@ public class DashboardService {
         this.debtorService = debtorService;
     }
 
-    /** Devedores de todas as abas do usuario, sem merge por nome (cada linha diz de qual aba veio) - usado na tela inicial. */
+    /** Devedores de todas as abas do usuario, sem merge por nome (cada linha diz de qual aba veio) -
+     * usado na tela "Devedores Geral". Por padrão (total=false) só conta dívidas do período (mesma
+     * resolução de key que visaoGeral - um closingDay de referência comum a todas as abas); total=true
+     * ignora período e soma tudo (todas as dívidas em aberto, qualquer data). */
     @Transactional(readOnly = true)
-    public List<DevedorGeralResponse> devedoresGeral() {
+    public DevedoresGeralResponse devedoresGeral(String periodParam, boolean total) {
         List<Tab> tabs = tabRepository.findByUserIdOrderByNameAsc(CurrentUser.id());
         List<DevedorGeralResponse> result = new ArrayList<>();
+        String key = total ? null
+                : (periodParam != null && !periodParam.isBlank() ? periodParam : FiscalPeriodCalculator.getCurrentFiscalPeriod(1).key());
+
         for (Tab tab : tabs) {
-            for (DebtorSummaryResponse d : debtorService.list(tab.getId())) {
-                if (d.totalDevido().compareTo(BigDecimal.ZERO) > 0) {
-                    result.add(new DevedorGeralResponse(
-                            d.id(), d.name(), d.totalDevido(), d.quantidadeDividas(),
-                            tab.getId(), tab.getName(), tab.getColor()
-                    ));
+            if (total) {
+                for (DebtorSummaryResponse d : debtorService.list(tab.getId())) {
+                    if (d.totalDevido().compareTo(BigDecimal.ZERO) > 0) {
+                        result.add(new DevedorGeralResponse(
+                                d.id(), d.name(), d.totalDevido(), d.quantidadeDividas(),
+                                tab.getId(), tab.getName(), tab.getColor()
+                        ));
+                    }
+                }
+            } else {
+                DevedoresDashboardResponse d = devedoresParaAba(tab, key);
+                for (PessoaResumo p : d.porPessoa()) {
+                    if (p.totalDevido().compareTo(BigDecimal.ZERO) > 0) {
+                        long quantidade = p.dividas().stream().filter(debt -> !"quitado".equals(debt.status())).count();
+                        result.add(new DevedorGeralResponse(
+                                p.debtorId(), p.nome(), p.totalDevido(), quantidade,
+                                tab.getId(), tab.getName(), tab.getColor()
+                        ));
+                    }
                 }
             }
         }
         result.sort((a, b) -> b.totalDevido().compareTo(a.totalDevido()));
-        return result;
+        return new DevedoresGeralResponse(total ? null : key, total, result);
     }
 
     @Transactional(readOnly = true)
@@ -73,15 +98,15 @@ public class DashboardService {
     }
 
     @Transactional(readOnly = true)
-    public VisaoGeralResponse visaoGeral(String periodParam) {
+    public VisaoGeralResponse visaoGeral(String periodParam, boolean total) {
         // Fixa a mesma "chave" de período pra todas as abas (cada uma resolve sua própria janela de
         // datas a partir dela, com seu closingDay) - sem isso, abas com closingDay diferente podiam
         // cair num período "atual" diferente uma da outra num dia de transição. Sem period explícito,
         // usa a mesma lógica de rollover de fechamento (não o mês de calendário puro) com um
         // closingDay de referência (1, o default de toda aba nova) pra decidir a chave "atual".
-        String key = (periodParam != null && !periodParam.isBlank())
-                ? periodParam
-                : FiscalPeriodCalculator.getCurrentFiscalPeriod(1).key();
+        // total=true ignora período inteiramente - soma gastos e dívidas de todos os tempos.
+        String key = total ? null
+                : (periodParam != null && !periodParam.isBlank() ? periodParam : FiscalPeriodCalculator.getCurrentFiscalPeriod(1).key());
 
         List<Tab> tabs = tabRepository.findByUserIdOrderByNameAsc(CurrentUser.id());
 
@@ -96,8 +121,8 @@ public class DashboardService {
         List<TabSummary> abas = new ArrayList<>();
 
         for (Tab tab : tabs) {
-            GastosDashboardResponse g = gastosParaAba(tab, key);
-            DevedoresDashboardResponse d = devedoresParaAba(tab, key);
+            GastosDashboardResponse g = total ? gastosTotalParaAba(tab) : gastosParaAba(tab, key);
+            DevedoresDashboardResponse d = total ? devedoresTotalParaAba(tab) : devedoresParaAba(tab, key);
 
             totalGastoGeral = totalGastoGeral.add(g.resumo().total());
             qtdLancamentosGeral += g.resumo().quantidadeLancamentos();
@@ -150,6 +175,7 @@ public class DashboardService {
 
         return new VisaoGeralResponse(
                 key,
+                total,
                 abas,
                 new GastosResumo(totalGastoGeral, qtdLancamentosGeral, mediaGeral),
                 porCategoria,
@@ -165,6 +191,16 @@ public class DashboardService {
         List<Expense> expenses = expenseRepository
                 .findByTabIdAndDateBetweenOrderByDateDesc(tab.getId(), period.start(), period.end());
 
+        return buildGastosDashboard(expenses, period);
+    }
+
+    /** Mesma montagem de gastosParaAba, mas sem filtro de período - usado pelo "ver total" da Visão Geral. */
+    private GastosDashboardResponse gastosTotalParaAba(Tab tab) {
+        List<Expense> expenses = expenseRepository.findByTabIdOrderByDateDesc(tab.getId());
+        return buildGastosDashboard(expenses, TOTAL_PERIOD);
+    }
+
+    private GastosDashboardResponse buildGastosDashboard(List<Expense> expenses, FiscalPeriod period) {
         BigDecimal total = expenses.stream().map(Expense::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Map<UUID, CategoriaAcc> porCategoriaMap = new LinkedHashMap<>();
@@ -226,6 +262,16 @@ public class DashboardService {
 
         List<Debt> debts = debtRepository.findByTabIdAndDateBetween(tab.getId(), period.start(), period.end());
 
+        return buildDevedoresDashboard(debts, period);
+    }
+
+    /** Mesma montagem de devedoresParaAba, mas sem filtro de período - usado pelo "ver total" da Visão Geral. */
+    private DevedoresDashboardResponse devedoresTotalParaAba(Tab tab) {
+        List<Debt> debts = debtRepository.findByTabId(tab.getId());
+        return buildDevedoresDashboard(debts, TOTAL_PERIOD);
+    }
+
+    private DevedoresDashboardResponse buildDevedoresDashboard(List<Debt> debts, FiscalPeriod period) {
         BigDecimal totalEmprestado = debts.stream().map(Debt::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalRecebido = debts.stream().map(Debt::getPaidAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalPendente = totalEmprestado.subtract(totalRecebido);
