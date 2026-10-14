@@ -3,6 +3,7 @@ package com.financeiro.api.service;
 import com.financeiro.api.dto.bets.*;
 import com.financeiro.api.entity.BetDailyBalance;
 import com.financeiro.api.entity.BetHouse;
+import com.financeiro.api.entity.BetHouseDisabledPeriod;
 import com.financeiro.api.entity.BetHouseGroup;
 import com.financeiro.api.entity.BetMonth;
 import com.financeiro.api.entity.BetMonthStartingBalance;
@@ -10,6 +11,7 @@ import com.financeiro.api.entity.BetUnitValueChange;
 import com.financeiro.api.entity.User;
 import com.financeiro.api.exception.AppException;
 import com.financeiro.api.repository.BetDailyBalanceRepository;
+import com.financeiro.api.repository.BetHouseDisabledPeriodRepository;
 import com.financeiro.api.repository.BetHouseGroupRepository;
 import com.financeiro.api.repository.BetHouseRepository;
 import com.financeiro.api.repository.BetMonthRepository;
@@ -41,6 +43,7 @@ public class BetService {
 
     private final BetHouseRepository betHouseRepository;
     private final BetHouseGroupRepository betHouseGroupRepository;
+    private final BetHouseDisabledPeriodRepository betHouseDisabledPeriodRepository;
     private final BetMonthRepository betMonthRepository;
     private final BetUnitValueChangeRepository betUnitValueChangeRepository;
     private final BetDailyBalanceRepository betDailyBalanceRepository;
@@ -48,6 +51,7 @@ public class BetService {
     private final UserRepository userRepository;
 
     public BetService(BetHouseRepository betHouseRepository, BetHouseGroupRepository betHouseGroupRepository,
+                       BetHouseDisabledPeriodRepository betHouseDisabledPeriodRepository,
                        BetMonthRepository betMonthRepository,
                        BetUnitValueChangeRepository betUnitValueChangeRepository,
                        BetDailyBalanceRepository betDailyBalanceRepository,
@@ -55,6 +59,7 @@ public class BetService {
                        UserRepository userRepository) {
         this.betHouseRepository = betHouseRepository;
         this.betHouseGroupRepository = betHouseGroupRepository;
+        this.betHouseDisabledPeriodRepository = betHouseDisabledPeriodRepository;
         this.betMonthRepository = betMonthRepository;
         this.betUnitValueChangeRepository = betUnitValueChangeRepository;
         this.betDailyBalanceRepository = betDailyBalanceRepository;
@@ -66,8 +71,17 @@ public class BetService {
 
     @Transactional(readOnly = true)
     public List<BetHouseResponse> listHouses() {
-        return betHouseRepository.findByUserIdOrderByPositionAsc(CurrentUser.id())
-                .stream().map(this::toHouseResponse).toList();
+        List<BetHouse> houses = betHouseRepository.findByUserIdOrderByPositionAsc(CurrentUser.id());
+        Map<UUID, LocalDate> disabledFromByHouse = new HashMap<>();
+        if (!houses.isEmpty()) {
+            for (BetHouseDisabledPeriod p : betHouseDisabledPeriodRepository
+                    .findByHouseIdIn(houses.stream().map(BetHouse::getId).toList())) {
+                if (p.getToDate() == null) {
+                    disabledFromByHouse.put(p.getHouse().getId(), p.getFromDate());
+                }
+            }
+        }
+        return houses.stream().map(h -> toHouseResponse(h, disabledFromByHouse.get(h.getId()))).toList();
     }
 
     public BetHouseResponse createHouse(BetHouseRequest request) {
@@ -79,7 +93,7 @@ public class BetService {
         house.setColor(request.color());
         house.setPosition(betHouseRepository.countByUserId(userId));
         betHouseRepository.save(house);
-        return toHouseResponse(house);
+        return toHouseResponse(house, null);
     }
 
     @Transactional
@@ -88,27 +102,48 @@ public class BetService {
         house.setName(request.name());
         house.setColor(request.color());
         betHouseRepository.save(house);
-        return toHouseResponse(house);
+        return toHouseResponse(house, openDisabledFrom(house.getId()));
     }
 
     /**
-     * "Excluir" uma casa não é mais um DELETE de verdade - arquiva ela a partir de hoje, sem
-     * apagar nenhum saldo já registrado. computeMonthDays() para de mostrá-la em qualquer dia
-     * >= hoje (em qualquer mês, passado ou futuro), mas os dias anteriores continuam intactos.
-     * Pedido explícito do usuário: precisa poder "esconder" uma casa que não usa mais sem perder
-     * o histórico dela (ex: uma casa antiga que só existiu no ano passado).
+     * Desabilita a casa a partir de hoje (inclusive): ela some do dia-a-dia e do resumo do mês de
+     * hoje em diante, sem apagar nenhum saldo já registrado. Pedido do usuário: casas que não usa
+     * em alguns meses (sacou tudo no fim do mês) não devem ficar aparecendo todo dia com saldo 0.
+     * Já desabilitada = não faz nada.
      */
-    public void archiveHouse(UUID id) {
+    public void disableHouse(UUID id) {
         BetHouse house = findOwnedHouse(id);
-        house.setArchivedFrom(LocalDate.now());
-        betHouseRepository.save(house);
+        if (betHouseDisabledPeriodRepository.findByHouseIdAndToDateIsNull(house.getId()).isPresent()) {
+            return;
+        }
+        BetHouseDisabledPeriod period = new BetHouseDisabledPeriod();
+        period.setHouse(house);
+        period.setFromDate(LocalDate.now());
+        betHouseDisabledPeriodRepository.save(period);
     }
 
-    /** Reverte o arquivamento - a casa volta a aparecer normalmente a partir de agora. */
-    public void unarchiveHouse(UUID id) {
+    /**
+     * Habilita de novo a partir de hoje: fecha o período aberto com toDate = hoje (exclusivo). Os
+     * dias em que a casa ficou desabilitada continuam escondidos - é o que diferencia isso de
+     * simplesmente "apagar a data de arquivamento". Desabilitou e habilitou no mesmo dia = o
+     * período ficaria vazio, então é removido.
+     */
+    public void enableHouse(UUID id) {
         BetHouse house = findOwnedHouse(id);
-        house.setArchivedFrom(null);
-        betHouseRepository.save(house);
+        betHouseDisabledPeriodRepository.findByHouseIdAndToDateIsNull(house.getId()).ifPresent(period -> {
+            LocalDate today = LocalDate.now();
+            if (!period.getFromDate().isBefore(today)) {
+                betHouseDisabledPeriodRepository.delete(period);
+            } else {
+                period.setToDate(today);
+                betHouseDisabledPeriodRepository.save(period);
+            }
+        });
+    }
+
+    private LocalDate openDisabledFrom(UUID houseId) {
+        return betHouseDisabledPeriodRepository.findByHouseIdAndToDateIsNull(houseId)
+                .map(BetHouseDisabledPeriod::getFromDate).orElse(null);
     }
 
     // ---- Agrupamento de casas ----
@@ -146,7 +181,7 @@ public class BetService {
             house.setGroup(group);
         }
         betHouseRepository.save(house);
-        return toHouseResponse(house);
+        return toHouseResponse(house, openDisabledFrom(house.getId()));
     }
 
     public void reorderHouses(ReorderHousesRequest request) {
@@ -470,9 +505,17 @@ public class BetService {
         // mesma soma que houseTotalResult, mas por grupo - só ganha entrada quando alguma casa do
         // grupo aparece num dia, então grupos sem casa nenhuma nunca aparecem no resumo.
         Map<UUID, BigDecimal> groupTotalResult = new LinkedHashMap<>();
-        // casas que realmente apareceram em pelo menos um dia visível (não arquivadas naquele
-        // dia) - usado pra tirar do "Geral do mês" uma casa arquivada antes do mês nem começar.
+        // casas que realmente apareceram em pelo menos um dia visível (não desabilitadas naquele
+        // dia) - usado pra tirar do "Geral do mês" uma casa que ficou desabilitada o mês inteiro.
         java.util.Set<UUID> appearedHouseIds = new java.util.LinkedHashSet<>();
+
+        // períodos de desabilitação de todas as casas, numa query só (evita N+1 por casa).
+        Map<UUID, List<BetHouseDisabledPeriod>> disabledPeriodsByHouse = new HashMap<>();
+        if (!houseIds.isEmpty()) {
+            for (BetHouseDisabledPeriod p : betHouseDisabledPeriodRepository.findByHouseIdIn(houseIds)) {
+                disabledPeriodsByHouse.computeIfAbsent(p.getHouse().getId(), k -> new ArrayList<>()).add(p);
+            }
+        }
 
         List<BetMonthDayResponse> days = new ArrayList<>();
         for (LocalDate date = month.getStartDate(); !date.isAfter(rangeEnd); date = date.plusDays(1)) {
@@ -483,9 +526,9 @@ public class BetService {
             BigDecimal dayTotalClosing = BigDecimal.ZERO;
 
             for (BetHouse h : houses) {
-                // casa arquivada a partir dessa data (inclusive) - some do dia sem apagar nada do
-                // que já foi registrado antes. "Excluir" uma casa é isso, não some do histórico.
-                if (h.getArchivedFrom() != null && !date.isBefore(h.getArchivedFrom())) {
+                // casa desabilitada nesse dia - some do dia sem apagar nada do que já foi registrado.
+                final LocalDate day = date;
+                if (disabledPeriodsByHouse.getOrDefault(h.getId(), List.of()).stream().anyMatch(p -> p.covers(day))) {
                     continue;
                 }
                 appearedHouseIds.add(h.getId());
@@ -720,9 +763,9 @@ public class BetService {
                 .orElseThrow(() -> new AppException("Nenhum mês aberto. Inicie um mês primeiro.", HttpStatus.CONFLICT));
     }
 
-    private BetHouseResponse toHouseResponse(BetHouse h) {
+    private BetHouseResponse toHouseResponse(BetHouse h, LocalDate disabledFrom) {
         BetHouseGroup group = h.getGroup();
         return new BetHouseResponse(h.getId(), h.getName(), h.getColor(), h.getPosition(),
-                group != null ? group.getId() : null, group != null ? group.getName() : null, h.getArchivedFrom());
+                group != null ? group.getId() : null, group != null ? group.getName() : null, disabledFrom);
     }
 }

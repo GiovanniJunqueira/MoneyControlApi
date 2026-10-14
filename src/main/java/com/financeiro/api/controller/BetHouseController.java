@@ -38,15 +38,15 @@ public class BetHouseController {
         return betService.updateHouse(id, request);
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        betService.archiveHouse(id);
+    @PutMapping("/{id}/disable")
+    public ResponseEntity<Void> disable(@PathVariable UUID id) {
+        betService.disableHouse(id);
         return ResponseEntity.noContent().build();
     }
 
-    @PutMapping("/{id}/restore")
-    public ResponseEntity<Void> restore(@PathVariable UUID id) {
-        betService.unarchiveHouse(id);
+    @PutMapping("/{id}/enable")
+    public ResponseEntity<Void> enable(@PathVariable UUID id) {
+        betService.enableHouse(id);
         return ResponseEntity.noContent().build();
     }
 
